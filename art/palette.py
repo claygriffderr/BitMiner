@@ -2,7 +2,7 @@
 
 Every color has one job, so a glance at the screen tells you what is what:
 
-- Green and purple: enemy ships
+- Green and purple: enemy ships, with bright steel for the guards' ram scoops
 - Hot pink and red: anything that can hurt you
 - Orange: the friendly faction (powerups, safe zones)
 - Pale white-cyan: the player's shots, engines and HUD
@@ -64,6 +64,11 @@ PALETTE: dict[str, tuple[int, int, int, int]] = {
     "alien_purple_dark": _hex("#371260"),
     "alien_purple": _hex("#6526b5"),
     "alien_purple_hi": _hex("#9d5cff"),
+    # Enemy metal: the guards' ram scoops. Brighter and shinier than your drab hull.
+    "steel_dark": _hex("#3d4250"),
+    "steel_mid": _hex("#7b8494"),
+    "steel_light": _hex("#b4bcc8"),
+    "steel_hi": _hex("#e9eef4"),
     # Danger
     "danger_dark": _hex("#7a0b2a"),
     "danger_red": _hex("#ff2448"),
@@ -121,9 +126,10 @@ ROLES: list[tuple[str, str, list[str]]] = [
       "canopy", "canopy_hi"]),
     ("Player light", "Your shots, engines and HUD.",
      ["ion_dark", "ion", "ion_hi", "ion_white"]),
-    ("Enemy ships", "Hacker green and purple.",
+    ("Enemy ships", "Hacker green and purple, plus polished steel for the guards' ram scoops.",
      ["alien_green_dark", "alien_green", "alien_green_hi", "alien_eye",
-      "alien_purple_black", "alien_purple_dark", "alien_purple", "alien_purple_hi"]),
+      "alien_purple_black", "alien_purple_dark", "alien_purple", "alien_purple_hi",
+      "steel_dark", "steel_mid", "steel_light", "steel_hi"]),
     ("Danger", "Anything that can hurt you, from shots to warnings.",
      ["danger_dark", "danger_red", "danger_pink", "danger_pink_hi", "danger_white"]),
     ("Friendly faction", "Powerups and safe zones.",

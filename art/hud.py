@@ -172,6 +172,36 @@ def ship_console(shield: float = 0.62, hull: float = 0.8, armor_level: int = 2, 
     return img
 
 
+def boss_bar(name: str = "MOTHERSHIP", health: float = 0.62, recent: float = 0.0, width: int = 236) -> Image.Image:
+    """A boss's health, shown at the bottom centre while you're close enough to fight it.
+
+    `recent` is health just knocked off by your hits. It flashes in your pale cyan before draining.
+    """
+    img = panel(width, 15)
+    label = pixfont.render(name, "alien_purple_hi")
+    img.alpha_composite(label, (6, 4))
+    x0 = 6 + label.width + 7
+    bw, bh = width - x0 - 6, 7
+    b = Image.new("RGBA", (bw, bh), pix.CLEAR)
+    d = ImageDraw.Draw(b)
+    d.rectangle([0, 0, bw - 1, bh - 1], fill=rgba("console_black"))
+    d.rectangle([1, 1, bw - 2, bh - 2], fill=rgba("alien_purple_black"))
+    inner = bw - 2
+    filled = int(round(inner * health))
+    lost = int(round(inner * min(1.0, health + recent))) - filled
+    if filled > 0:
+        d.rectangle([1, 1, filled, bh - 2], fill=rgba("alien_purple"))
+        d.line([(1, 1), (filled, 1)], fill=rgba("alien_purple_hi"))
+        d.line([(1, bh - 2), (filled, bh - 2)], fill=rgba("alien_purple_dark"))
+    if lost > 0:
+        d.rectangle([filled + 1, 1, filled + lost, bh - 2], fill=rgba("hud_text"))
+    for i in range(1, 10):
+        x = int(round(1 + i * inner / 10))
+        d.line([(x, 1), (x, bh - 2)], fill=rgba("console_black"))
+    img.alpha_composite(b, (x0, 4))
+    return img
+
+
 # ---------------------------------------------------------------- radar
 
 def radar(blips: list[tuple[float, float, str]], sweep: float = 35.0, radius: int = 38) -> Image.Image:

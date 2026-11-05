@@ -1,7 +1,9 @@
 """Every BitMiner sprite, drawn as text grids or built from simple shapes.
 
-Ships face up. Rotation happens before the outline is drawn, so outlines stay unbroken at any
-angle. The player turns smoothly; enemies snap to eight directions.
+Ships face up (the mothership faces down). Rotation happens before the outline is drawn, so
+outlines stay unbroken at any angle. The player turns smoothly; enemies snap between eight
+directions, and their diagonals are turned the same way as the player's ship (`Scene.blit_smooth`
+with the `*_interior` sprites), so their pixels stay square.
 """
 
 from __future__ import annotations
@@ -259,7 +261,7 @@ def _eye(frame: int) -> str:
     return "alien_eye" if frame % 2 == 0 else "alien_green_hi"
 
 
-def infantry(frame: int = 0, angle: float = 0.0) -> Image.Image:
+def infantry_interior(frame: int = 0) -> Image.Image:
     rows = pix.mirror([
         ".G...",
         ".gG..",
@@ -272,32 +274,93 @@ def infantry(frame: int = 0, angle: float = 0.0) -> Image.Image:
     ])
     legend = {"g": "alien_green", "G": "alien_green_hi", "p": "alien_purple", "P": "alien_purple_hi",
               "d": "alien_purple_dark", "E": _eye(frame)}
-    return _finish(pix.from_grid(rows, legend), ENEMY_OUTLINE, angle)
+    return pix.from_grid(rows, legend)
 
 
-def guard(frame: int = 0, charging: bool = False, angle: float = 0.0) -> Image.Image:
-    eye = "danger_pink_hi" if charging else _eye(frame)
-    rows = pix.mirror([
-        ".dPPPPP",
-        "dPpppPP",
-        "dppddpp",
-        "dpgggdd",
-        "dpgEEEE",
-        "dpgggdd",
-        "dppddpp",
-        "dpppppp",
-        ".dpp.pp",
-        "..dd.dd",
-    ])
+def infantry(frame: int = 0, angle: float = 0.0) -> Image.Image:
+    return _finish(infantry_interior(frame), ENEMY_OUTLINE, angle)
+
+
+GUARD_ROWS = pix.mirror([
+    ".dPPPPP",
+    "dPpppPP",
+    "dppddpp",
+    "dpgggdd",
+    "dpgEEEE",
+    "dpgggdd",
+    "dppddpp",
+    "dpppppp",
+    ".dpp.pp",
+    "..dd.dd",
+])
+
+# The ram scoop, seen from above like a bulldozer blade. Stage 1 is folded flat against the nose,
+# stage 2 swings the wings out, stage 3 pushes the blade forward on its arms.
+SCOOP_STAGES = {
+    1: pix.mirror([
+        "..MLLLLLL",
+        "..DMMMMMM",
+    ]),
+    2: pix.mirror([
+        "LW.......",
+        "MLWWWWWWW",
+        "DMMMMMMMM",
+        ".DLLLLLLL",
+        "..DDDDDDD",
+    ]),
+    3: pix.mirror([
+        "W........",
+        "LW.......",
+        "MLWWWWWWW",
+        "DMMMMMMMM",
+        ".DLLLLLLL",
+        "..DDDDDDD",
+        "...DM....",
+        "...DM....",
+    ]),
+}
+_SCOOP_DEPTH = max(len(rows) for rows in SCOOP_STAGES.values())
+_SCOOP_WIDTH = max(len(rows[0]) for rows in SCOOP_STAGES.values())
+
+
+def guard_interior(frame: int = 0, ram: int = 0) -> Image.Image:
+    """The guard without its outline. `ram` 1 to 3 shows the steel scoop sliding out before a ram.
+
+    With the scoop out, the canvas grows by the same amount front and back, so the guard's body
+    stays centred and the sprite still turns around the body.
+    """
+    eye = "danger_pink_hi" if ram else _eye(frame)
     legend = {"d": "alien_purple_dark", "p": "alien_purple", "P": "alien_purple_hi",
-              "g": "alien_green", "E": eye}
-    img = _finish(pix.from_grid(rows, legend), ENEMY_OUTLINE, angle)
-    if charging:
-        img = pix.outline(img, "danger_red" if frame % 2 == 0 else "danger_pink")
-    return img
+              "g": "alien_green", "E": eye,
+              "W": "steel_hi", "L": "steel_light", "M": "steel_mid", "D": "steel_dark"}
+    if not ram:
+        return pix.from_grid(GUARD_ROWS, legend)
+    w = _SCOOP_WIDTH
+    scoop = SCOOP_STAGES[ram]
+    rows = ["." * w] * (_SCOOP_DEPTH - len(scoop))
+    for row in scoop + GUARD_ROWS:
+        p = (w - len(row)) // 2
+        rows.append("." * p + row + "." * (w - len(row) - p))
+    rows += ["." * w] * _SCOOP_DEPTH
+    return pix.from_grid(rows, legend)
 
 
-def rapid_assault(frame: int = 0, angle: float = 0.0) -> Image.Image:
+def guard(frame: int = 0, ram: int = 0, angle: float = 0.0) -> Image.Image:
+    return _finish(guard_interior(frame, ram), ENEMY_OUTLINE, angle)
+
+
+def scoop_reach() -> int:
+    """How far the fully deployed scoop's front edge sits ahead of the guard's centre, outline included."""
+    return len(GUARD_ROWS) // 2 + _SCOOP_DEPTH + 1
+
+
+def glint(frame: int = 0) -> Image.Image:
+    """A quick sparkle on polished metal, used when the ram scoop locks into place."""
+    rows = [".W.", "WwW", ".W."] if frame % 2 == 0 else ["..W..", "..W..", "WWwWW", "..W..", "..W.."]
+    return pix.from_grid(rows, {"W": "steel_hi", "w": "star_bright"})
+
+
+def rapid_assault_interior(frame: int = 0) -> Image.Image:
     rows = pix.mirror([
         "...G",
         "...G",
@@ -312,7 +375,11 @@ def rapid_assault(frame: int = 0, angle: float = 0.0) -> Image.Image:
     ])
     legend = {"g": "alien_green", "G": "alien_green_hi", "p": "alien_purple", "d": "alien_purple_dark",
               "E": _eye(frame)}
-    return _finish(pix.from_grid(rows, legend), ENEMY_OUTLINE, angle)
+    return pix.from_grid(rows, legend)
+
+
+def rapid_assault(frame: int = 0, angle: float = 0.0) -> Image.Image:
+    return _finish(rapid_assault_interior(frame), ENEMY_OUTLINE, angle)
 
 
 def _bevel_into(out: np.ndarray, mask: np.ndarray, tones: tuple[str, str, str]) -> None:
@@ -364,8 +431,11 @@ def tank(frame: int = 0, pods_loaded: bool = True, angle: float = 0.0) -> Image.
     return _finish(Image.fromarray(out), ENEMY_OUTLINE, angle)
 
 
-def mothership(frame: int = 0, laser_charge: float = 0.0) -> Image.Image:
-    """A 220x160 carrier: hangar bays, turrets, missile racks and a laser emitter at the nose."""
+def mothership(frame: int = 0, laser_charge: float = 0.0, outlined: bool = True) -> Image.Image:
+    """A 220x160 carrier: hangar bays, turrets, missile racks and a laser emitter at the nose (facing down).
+
+    `outlined=False` gives the interior, for turning it smoothly and outlining it afterwards.
+    """
     w, h = 220, 160
     cx = (w - 1) / 2
     yy, xx = np.mgrid[0:h, 0:w]
@@ -475,7 +545,12 @@ def mothership(frame: int = 0, laser_charge: float = 0.0) -> Image.Image:
             x = cx + side * (40 + t * 60)
             y = (h - 34) + t * (70 - (h - 34))
             out[int(round(y)), int(round(x))] = rgba("alien_green_hi" if frame % 2 == 0 else "alien_green")
-    return pix.outline(Image.fromarray(out), ENEMY_OUTLINE)
+    img = Image.fromarray(out)
+    return pix.outline(img, ENEMY_OUTLINE) if outlined else img
+
+
+# The laser emitter's centre, relative to the centre of the mothership sprite.
+MOTHERSHIP_EMITTER = (0.0, (160 - 24 + 0.5) - 160 / 2)
 
 
 # ---------------------------------------------------------------- enemy shots
@@ -746,22 +821,31 @@ def ram_warning(length: int, frame: int = 0) -> Image.Image:
     return img
 
 
-def laser_warning(length: int, frame: int = 0) -> Image.Image:
-    """The mothership's laser telegraph: two flashing lines marking the beam's width, pointing down."""
+def laser_warning(length: int, frame: int = 0, locked: bool = False) -> Image.Image:
+    """The mothership's laser telegraph, pointing down, marking the beam's width.
+
+    While the mothership is still turning to track you, the edges are dashed and dim. Once the
+    laser locks, the lane stops moving, its edges go solid and it flashes hard.
+    """
     w = 25
     img = Image.new("RGBA", (w, length), pix.CLEAR)
     d = ImageDraw.Draw(img)
     on = frame % 2 == 0
-    col = rgba("danger_red" if on else "danger_pink")
-    d.line([(0, 0), (0, length - 1)], fill=col)
-    d.line([(w - 1, 0), (w - 1, length - 1)], fill=col)
-    if on:
-        fill = rgba("danger_red")[:3] + (40,)
-        d.rectangle([1, 0, w - 2, length - 1], fill=fill)
+    if locked:
+        col = rgba("danger_pink_hi" if on else "danger_red")
+        d.line([(0, 0), (0, length - 1)], fill=col)
+        d.line([(w - 1, 0), (w - 1, length - 1)], fill=col)
+        d.rectangle([1, 0, w - 2, length - 1], fill=rgba("danger_red")[:3] + (70 if on else 35,))
+        mark_col = rgba("danger_white" if on else "danger_pink_hi")
+    else:
+        col = rgba("danger_red")
+        pix.dashed_line(d, (0, 0), (0, length - 1), col, dash=5, gap=4)
+        pix.dashed_line(d, (w - 1, 0), (w - 1, length - 1), col, dash=5, gap=4)
+        mark_col = rgba("danger_pink")
     for y in range(6, length, 24):
         mark = [(12, y), (11, y + 1), (13, y + 1), (12, y + 2), (12, y + 3), (12, y + 5)]
         for p in mark:
-            d.point(p, fill=rgba("danger_pink_hi"))
+            d.point(p, fill=mark_col)
     return img
 
 

@@ -44,7 +44,9 @@ def sprite_catalog() -> dict[str, Image.Image]:
     c["laser_player"] = strip([S.laser_player(120, f) for f in range(2)])
     c["infantry"] = strip([S.infantry(f) for f in range(2)])
     c["guard"] = strip([S.guard(f) for f in range(2)])
-    c["guard_charging"] = strip([S.guard(f, charging=True) for f in range(2)])
+    c["guard_ram_deploy"] = strip([S.guard(0, ram=r) for r in (1, 2, 3)])
+    c["guard_ram"] = strip([S.guard(f, ram=3) for f in range(2)])
+    c["glint"] = strip([S.glint(f) for f in range(2)])
     c["rapid_assault"] = strip([S.rapid_assault(f) for f in range(2)])
     c["tank"] = strip([S.tank(f) for f in range(2)])
     c["mothership"] = strip([S.mothership(f) for f in range(2)])
@@ -64,6 +66,7 @@ def sprite_catalog() -> dict[str, Image.Image]:
     c["armor_hit"] = strip([S.armor_hit(f) for f in range(3)])
     c["ram_warning"] = strip([S.ram_warning(80, f) for f in range(2)])
     c["laser_warning"] = strip([S.laser_warning(120, f) for f in range(2)])
+    c["laser_warning_locked"] = strip([S.laser_warning(120, f, locked=True) for f in range(2)])
     c["laser_beam"] = strip([S.laser_beam(120, f) for f in range(2)])
     for kind in hud.WEAPON_ICONS:
         c[f"hud_weapon_{kind}"] = hud.weapon_icon(kind)
@@ -129,10 +132,11 @@ def review_images(dest: Path) -> dict:
     board("home_base", [(None, S.home_base(0))], 4)
     board("shots_player", [("AUTO", S.shot_auto()), ("SNIPER", S.shot_sniper()), ("MISSILE", S.missile_player(0))], 6, gap=8)
     board("weapon_icons", [(k_.upper(), hud.weapon_icon(k_)) for k_ in hud.WEAPON_ICONS], 4, gap=10)
-    board("enemies", [("INFANTRY", S.infantry(0)), ("GUARD", S.guard(0)), ("RAMMING", S.guard(0, charging=True)),
+    board("enemies", [("INFANTRY", S.infantry(0)), ("GUARD", S.guard(0)), ("RAMMING", S.tight(S.guard(0, ram=3))),
                       ("RAPID", S.rapid_assault(0))], 5, gap=8)
+    board("guard_scoop", [("IDLE", S.guard(0)), ("FOLD", S.tight(S.guard(0, ram=1))),
+                          ("SWING", S.tight(S.guard(0, ram=2))), ("RAM", S.tight(S.guard(0, ram=3)))], 4, gap=8)
     board("tank", [(None, S.tank(0))], 6)
-    board("mothership", [(None, S.mothership(0))], 3)
     board("shots_enemy", [("ORB", S.shot_infantry(0)), ("NEEDLE", S.shot_rapid()), ("MISSILE", S.missile_enemy(0))], 6, gap=8)
     board("asteroids", [("14", S.asteroid(14, 102)), ("24", S.asteroid(24, 104, ore=2)),
                         ("48", S.asteroid(48, 106, ore=6)), ("96", S.asteroid(96, 4242, ore=16))], 3, gap=12)
@@ -144,7 +148,8 @@ def review_images(dest: Path) -> dict:
                                           (30, -26, "boss"), (-30, 24, "base"), (-15, 4, "drill"), (-34, -8, "drill"),
                                           (-14, -9, "danger")]))], 3, hud_piece=True)
     top = Image.new("RGBA", (640, 40), pix.CLEAR)
-    for img, x, y in hud.top_bar(alert="LASER CHARGING - CLEAR THE LANE"):
+    board("hud_boss", [(None, hud.boss_bar(health=0.58, recent=0.05))], 3, hud_piece=True)
+    for img, x, y in hud.top_bar(alert="LASER LOCKED - CLEAR THE LANE"):
         top.alpha_composite(img, (x, y - 2))
     board("hud_top", [(None, top.crop(top.getbbox()))], 2, hud_piece=True)
 
@@ -162,29 +167,24 @@ def review_images(dest: Path) -> dict:
     _gif(frames, dest / "anim" / "boosters.gif", 110)
     meta["anims"]["boosters"] = [96 * k, 56 * k]
 
-    # Turning: crisp angles versus smooth rotation.
-    crisp, smooth = [], []
+    # Turning: smooth rotation, so the ship points exactly at the mouse.
+    smooth = []
     for i in range(48):
         ang = i * 7.5
-        sc = _stage(48, 48, k)
-        sc.blit(S.player_ship(ang, ("W",), i), 24, 24)
-        crisp.append(sc.render())
         sc = _stage(48, 48, k)
         body, flames = S.player_parts(("W",), i)
         sc.blit_smooth(body, 24, 24, angle=ang, outline="hull_outline", overlay=flames)
         smooth.append(sc.render())
-    _gif(crisp, dest / "anim" / "turn_crisp.gif", 70)
     _gif(smooth, dest / "anim" / "turn_smooth.gif", 70)
-    meta["anims"]["turn_crisp"] = meta["anims"]["turn_smooth"] = [48 * k, 48 * k]
+    meta["anims"]["turn_smooth"] = [48 * k, 48 * k]
 
-    # Enemies snapping between directions with hard turns (diagonals still to be hand-drawn).
+    # Enemies snapping between eight directions. Diagonals are turned like the player's ship.
     frames = []
     for i in range(16):
-        ang = (i // 4) * 90
+        ang = (i // 2) * 45
         sc = _stage(120, 48, k)
-        for x, maker in ((20, S.infantry), (60, S.rapid_assault), (100, S.guard)):
-            # Diagonals are machine-rotated stand-ins for now; final ones will be hand-drawn.
-            sc.blit(maker(i % 2, angle=ang), x, 24)
+        for x, maker in ((20, S.infantry_interior), (60, S.rapid_assault_interior), (100, S.guard_interior)):
+            sc.blit_smooth(maker(i % 2), x, 24, angle=ang, outline=S.ENEMY_OUTLINE)
         frames.append(sc.render())
     _gif(frames, dest / "anim" / "enemy_turns.gif", 260)
     meta["anims"]["enemy_turns"] = [120 * k, 48 * k]
@@ -216,41 +216,88 @@ def review_images(dest: Path) -> dict:
     _gif(frames, dest / "anim" / "hits.gif", [120] * 4 + [300] + [110] * 3 + [400, 200])
     meta["anims"]["hits"] = [56 * k, 48 * k]
 
-    # Guard ram: warning lane, then the dash.
-    frames = []
-    for f in range(12):
-        sc = _stage(48, 96, k)
-        sc.blit(S.player_ship(), 24, 84)
-        if f < 8:
-            sc.blit(S.ram_warning(56, f), 24, 44)
-            sc.blit(S.guard(f, charging=True, angle=180), 24, 10)
-        else:
-            y = 10 + (f - 7) * 16
-            sc.blit(S.guard(f, charging=True, angle=180), 24, min(y, 66))
-            if f == 11:
-                sc.blit(S.armor_hit(0), 24, 76)
-        frames.append(sc.render())
-    _gif(frames, dest / "anim" / "guard_ram.gif", [150] * 8 + [70, 70, 70, 600])
-    meta["anims"]["guard_ram"] = [48 * k, 96 * k]
+    # Guard ram: the steel scoop slides out, the lane flashes, then the dash.
+    frames, times = [], []
+    gx, gy, player_y = 24, 16, 92
+    reach = S.scoop_reach()
+    hit_y = player_y - 9
 
-    # Mothership laser: charge, telegraph, fire.
-    frames = []
-    k2 = 3
-    for f in range(14):
-        sc = _stage(240, 300, k2)
-        charge = min(1.0, f / 7) if f < 9 else 1.0
-        ms = S.mothership(f, laser_charge=charge if f > 0 else 0.0)
-        sc.blit(ms, 120, 82)
-        ey = 82 - ms.height // 2 + 1 + 160 - 24
-        if 0 < f < 9:
-            lane = S.laser_warning(300 - ey - 12, f)
-            sc.blit(lane, 120, ey + 12 + lane.height / 2, glow=0.6)
-        elif f >= 9 and f < 13:
-            beam = S.laser_beam(300 - ey - 6, f)
-            sc.blit(beam, 120, ey + 6 + beam.height / 2)
-        frames.append(sc.render())
-    _gif(frames, dest / "anim" / "mothership_laser.gif", [500] + [220] * 8 + [90] * 4 + [700])
-    meta["anims"]["mothership_laser"] = [240 * k2, 300 * k2]
+    def ram_frame(ram: int, f: int, y: float, lane: bool = False, sparkle: int | None = None, hit: bool = False):
+        sc = _stage(48, 104, k)
+        sc.blit(S.player_ship(), gx, player_y)
+        if lane:
+            mockups.ram_lane(sc, (gx, y + reach), (gx, hit_y), frame=f)
+        sc.blit(S.guard(f, ram=ram, angle=180), gx, y)
+        if sparkle is not None:
+            sc.blit(S.glint(sparkle), gx - 8, y + reach - 1, glow=0)
+        if hit:
+            sc.blit(S.armor_hit(0), gx, hit_y + 2)
+        return sc.render()
+
+    for f in range(2):
+        frames.append(ram_frame(0, f, gy)); times.append(260)
+    for r in (1, 2):
+        frames.append(ram_frame(r, 0, gy)); times.append(110)
+    frames.append(ram_frame(3, 0, gy, sparkle=0)); times.append(110)
+    frames.append(ram_frame(3, 1, gy, sparkle=1)); times.append(110)
+    for f in range(6):
+        frames.append(ram_frame(3, f, gy, lane=True)); times.append(140)
+    for j in (1, 2, 3):
+        y = min(gy + 18 * j, hit_y - reach)
+        frames.append(ram_frame(3, j, y, hit=(j == 3))); times.append(70 if j < 3 else 600)
+    _gif(frames, dest / "anim" / "guard_ram.gif", times)
+    meta["anims"]["guard_ram"] = [48 * k, 104 * k]
+
+    # Mothership laser: it turns to track you while charging, freezes once locked, then fires.
+    frames, times = [], []
+    k2, W2, H2 = 2, 320, 320
+    center, py = (160, 92), 292
+    turn_rate = 2.6
+
+    def ease(t: float) -> float:
+        return t * t * (3 - 2 * t)
+
+    def laser_frame(f: int, ang: float, px: float, keys: tuple[str, ...], charge: float, state: str | None):
+        sc = _stage(W2, H2, k2)
+        sc.blit_smooth(S.mothership(f, laser_charge=charge, outlined=False), *center, angle=ang,
+                       outline=S.ENEMY_OUTLINE)
+        if state in ("tracking", "locked"):
+            mockups.laser_lane(sc, center, ang, 300, f, locked=(state == "locked"))
+        elif state == "firing":
+            mockups.laser_lane(sc, center, ang, 300, f, firing=True)
+        body, flames = S.player_parts(keys, f)
+        sc.blit_smooth(body, px, py, angle=mockups.heading((px, py), center), outline="hull_outline", overlay=flames)
+        if state:
+            label = {"tracking": "TRACKING YOU", "locked": "LOCKED - MOVE", "firing": "FIRING"}[state]
+            _label(sc, label, 6, H2 - 11, "hud_dim" if state == "tracking" else "danger_pink_hi")
+        return sc.render()
+
+    def follow(ang: float, px: float) -> float:
+        want = mockups.aim_mothership(center, (px, py), ang)
+        return ang + max(-turn_rate, min(turn_rate, want - ang))
+
+    px = 92.0
+    ang = mockups.aim_mothership(center, (px, py))
+    for f in range(2):
+        frames.append(laser_frame(f, ang, px, (), 0.0, None)); times.append(300)
+    for i in range(16):
+        px = 92 + 120 * ease(min(1.0, i / 12))
+        ang = follow(ang, px)
+        keys = ("D",) if i < 9 else (("A",) if i < 12 else ())
+        frames.append(laser_frame(i, ang, px, keys, (i + 1) / 16, "tracking")); times.append(110)
+    for j in range(8):
+        if j >= 2:
+            px = 212 - 56 * ease((j - 2) / 5)
+        keys = ("A",) if 2 <= j < 6 else (("D",) if j >= 6 else ())
+        frames.append(laser_frame(j, ang, px, keys, 1.0, "locked")); times.append(100)
+    for j in range(5):
+        px -= 1.5
+        frames.append(laser_frame(j, ang, px, (), 1.0, "firing")); times.append(80)
+    for j in range(3):
+        ang = follow(ang, px)
+        frames.append(laser_frame(j, ang, px, (), 0.0, None)); times.append(150 if j < 2 else 700)
+    _gif(frames, dest / "anim" / "mothership_laser.gif", times)
+    meta["anims"]["mothership_laser"] = [W2 * k2, H2 * k2]
 
     # Friendly faction: powerups blinking and the safe zone edge crawling.
     frames = []

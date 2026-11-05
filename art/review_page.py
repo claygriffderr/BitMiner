@@ -97,6 +97,8 @@ section { display: grid; gap: 20px; }
 .cap { padding: 14px 16px 16px; display: grid; gap: 6px; align-content: start; }
 .cap .size { font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim); }
 .wide { grid-column: 1 / -1; }
+.span2 { grid-column: 1 / -1; }
+@media (min-width: 1040px) { .span2 { grid-column: span 2; } }
 .mock { display: grid; gap: 10px; }
 .mock .stage { padding: 0; }
 .mock img { width: 100%; image-rendering: auto; }
@@ -137,7 +139,7 @@ section { display: grid; gap: 20px; }
 .sw { display: grid; grid-template-columns: 22px auto; gap: 6px; align-items: center; font: 11.5px var(--font-mono); color: var(--ink-dim); }
 .sw i { width: 22px; height: 22px; display: block; border: 1px solid #ffffff22; }
 ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 72ch; }
-.next { padding: 20px; display: grid; gap: 10px; }
+.next { padding: 20px; display: grid; gap: 10px; align-content: start; }
 code { font-family: var(--font-mono); font-size: 13px; color: var(--ink); background: var(--void); padding: 1px 5px; }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 """
@@ -167,9 +169,11 @@ def img_tag(meta: dict, kind: str, name: str, alt: str) -> str:
     return f'<img src="{folder}/{name}.{ext}" width="{w}" height="{h}" alt="{esc(alt)}">'
 
 
-def tile(meta: dict, kind: str, name: str, title: str, size: str, text: str, wide: bool = False, alt: str | None = None) -> str:
+def tile(meta: dict, kind: str, name: str, title: str, size: str, text: str, wide: bool = False, alt: str | None = None,
+         span2: bool = False) -> str:
+    cls = " wide" if wide else (" span2" if span2 else "")
     return f"""
-<figure class="panel tile{' wide' if wide else ''}" id="art-{name}">
+<figure class="panel tile{cls}" id="art-{name}">
   <div class="stage">{img_tag(meta, kind, name, alt or title)}</div>
   <figcaption class="cap"><h3>{esc(title)}</h3><span class="size">{esc(size)}</span><p class="muted">{text}</p></figcaption>
 </figure>"""
@@ -207,67 +211,51 @@ def build(dest: Path) -> Path:
 <div class="wrap">
 
 <header>
-  <span class="eyebrow">Sprint 1 · Art direction</span>
+  <span class="eyebrow">Sprint 1 · Art direction · Round 2</span>
   <h1>BitMiner art review</h1>
-  <p class="lead">Every sprite, effect and HUD piece for the first playable version, drawn on the game's 640×360 pixel grid and shown together in two mock fights. Leave a comment on anything you want changed, and pick an answer for the four decisions below.</p>
+  <p class="lead">Every sprite, effect and HUD piece for the first playable version, drawn on the game's 640×360 pixel grid and shown together in two mock fights. This round adds the changes from your notes, shown first. Leave a comment on anything you want changed.</p>
   <nav class="jump" aria-label="Sections">
-    <a href="#fights">Mock fights</a><a href="#decisions">Decisions</a><a href="#palette">Palette</a>
+    <a href="#changes">What changed</a><a href="#fights">Mock fights</a><a href="#decisions">Your decisions</a><a href="#palette">Palette</a>
     <a href="#yours">Your side</a><a href="#enemies">Enemies</a><a href="#world">World</a>
     <a href="#effects">Effects</a><a href="#hud">HUD</a><a href="#next">What's next</a>
   </nav>
 </header>
+
+<section id="changes">
+  <div class="section-head">
+    <h2>What changed</h2>
+    <p class="muted">Your four notes from round 1, plus one fix that came out of them. Both mock fights below are updated to match.</p>
+  </div>
+  <div class="grid">
+    {tile(meta, "anims", "guard_ram", "Guard ram: steel scoop", "Folds out, glints, then the dash", "The red outline is gone. Before a ram, the guard folds out a steel scoop like a bulldozer blade: the wings swing out, then the blade pushes forward on two arms and glints as it locks. The red lane still marks the dash, and the visor still turns pink.")}
+    {tile(meta, "sprites", "guard_scoop", "The scoop, step by step", "Shown 4× larger", "Idle guard, then the three steps of the scoop folding out. The steel is brighter and shinier than your ship's drab grey and keeps the enemies' dark outline, so it still reads as theirs.", span2=True)}
+    {tile(meta, "anims", "mothership_laser", "Mothership aims, then locks", "Tracks you, freezes, fires", "While the laser charges, the mothership turns to follow you, slowly enough that a hard strafe pulls the lane off you. When it locks, it freezes, the lane goes solid and flashes, and the HUD says LASER LOCKED. Then you have a moment to get out before it fires.", wide=True, alt="Mothership turning to track the player, locking, and firing after the player dodges")}
+    {tile(meta, "sprites", "hud_boss", "Mothership health bar", "Bottom centre, only when you're close", "Appears when you get within range of the mothership and fades when you leave. Health just knocked off by your hits flashes in your pale cyan before it drains.", wide=True)}
+    {tile(meta, "anims", "enemy_turns", "Enemy diagonals (fix)", "Eight directions", "To make the scoop face the player on a diagonal, enemies now turn the same way your ship does, with square pixels. They still snap between eight directions with hard turns, and the diagonals no longer need hand-drawn frames.", wide=True)}
+  </div>
+</section>
 
 <section id="fights">
   <div class="section-head">
     <h2>Mock fights</h2>
     <p class="muted">Each mock is a full 1080p frame: the 640×360 game screen scaled up three times, with glow on anything that gives off light. Switch on the CRT filter to compare the optional scanline look.</p>
   </div>
-  {mock("defend_the_drill", "Defending the drill", "Mid-game. You strafe left while firing at an infantry formation. The middle guard is about to ram you (red lane), a sentry shoots down a tank missile, and the friendly faction has dropped a shield powerup and a safe zone. Off-screen arrows point to more enemies and to your base.")}
-  {mock("mothership_assault", "Attacking the mothership", "Late game. The mothership's laser is charging, so its lane is marked in red and the HUD warns you. Infantry pour out of the hangar bays while turrets and missile racks fire. Your hull is low, so its bar turns red.")}
+  {mock("defend_the_drill", "Defending the drill", "Mid-game. You strafe left while firing at an infantry formation. The middle guard has turned to face you and folded out its steel scoop to ram (red lane), a sentry shoots down a tank missile, and the friendly faction has dropped a shield powerup and a safe zone. Off-screen arrows point to more enemies and to your base.")}
+  {mock("mothership_assault", "Attacking the mothership", "Late game. The mothership has turned to track you and its laser has locked, so the lane is solid red and the HUD tells you to clear it. You're close, so its health bar shows at the bottom. Infantry pour out of the hangar bays while turrets and missile racks fire. Your hull is low, so its bar turns red.")}
 </section>
 
 <section id="decisions">
   <div class="section-head">
-    <h2>Decisions for you</h2>
-    <p class="muted">Each one changes how the game looks from here on. I've marked what I recommend.</p>
+    <h2>Your decisions</h2>
+    <p class="muted">Locked in from round 1. These carry through every sprint from here on.</p>
   </div>
-  <div class="decisions">
-    <div class="panel decision" id="decision-turning">
-      <div class="q"><span class="num">1</span><h3>How should your ship turn?</h3></div>
-      <div class="options">
-        <div class="option rec"><span class="chip">Recommended</span><strong>Smooth turning</strong>
-          {img_tag(meta, "anims", "turn_smooth", "Ship turning smoothly")}
-          <p class="muted">The ship rotates to any angle, so it always points exactly at your mouse. Its pixels turn as crisp squares.</p></div>
-        <div class="option"><strong>Fixed pixel angles</strong>
-          {img_tag(meta, "anims", "turn_crisp", "Ship turning in fixed pixel steps")}
-          <p class="muted">The ship is redrawn on the pixel grid at each angle. More old-school, but it looks rougher mid-turn.</p></div>
-      </div>
-      <p class="muted">Either way, enemies stay locked to fixed directions, which matches their hard-angle movement.</p>
-    </div>
-    <div class="panel decision" id="decision-explosions">
-      <div class="q"><span class="num">2</span><h3>What color should explosions be?</h3></div>
-      <div class="options">
-        <div class="option rec"><span class="chip">Recommended</span><strong>Owner's colors</strong>
-          {img_tag(meta, "anims", "explosions", "Explosions in enemy, danger and player colors")}
-          <p class="muted">Enemies burst green and purple, enemy weapons pink and red, and your explosives cyan. You can tell at a glance whose blast it was.</p></div>
-        <div class="option"><strong>Classic orange fire</strong>
-          <p class="muted">Familiar arcade fireballs, but orange already means the friendly faction, so powerups would get lost in big fights.</p></div>
-      </div>
-    </div>
-    <div class="panel decision" id="decision-gold">
-      <div class="q"><span class="num">3</span><h3>Is gold right for resources?</h3></div>
-      <p class="muted">Gold is the one color left unclaimed. It marks ore flecks on asteroids, the drill's hopper, drills on the radar, and your credits and ore count in the HUD.</p>
-    </div>
-    <div class="panel decision" id="decision-hud">
-      <div class="q"><span class="num">4</span><h3>Keep the HUD pieces I added?</h3></div>
-      <ul class="plain">
-        <li>A shield bar alongside hull and armor, since shields recharge and you need to see them.</li>
-        <li>A wave countdown at the top, since waves come on a timer.</li>
-        <li>Credits and carried ore at the top left.</li>
-        <li>Lives next to the ship icon.</li>
-        <li>A <strong>BASE</strong> pointer at the screen edge, shown even before you buy the radar.</li>
-      </ul>
-    </div>
+  <div class="panel next">
+    <ul class="plain">
+      <li><strong>Ship turning:</strong> smooth, so your ship always points exactly at your mouse.</li>
+      <li><strong>Explosions:</strong> in the owner's colors. Enemies burst green and purple, enemy weapons pink and red, and yours cyan.</li>
+      <li><strong>Resources:</strong> gold.</li>
+      <li><strong>HUD:</strong> keep the shield bar, wave countdown, credits and ore, lives and the BASE pointer, and add a mothership health bar.</li>
+    </ul>
   </div>
 </section>
 
@@ -283,6 +271,7 @@ def build(dest: Path) -> Path:
   <div class="section-head"><h2>Your side</h2><p class="muted">Drab gunmetal with a light outline, so your hardware never blends in with enemies.</p></div>
   <div class="grid">
     {tile(meta, "sprites", "player", "Ship, sentry and drill", "17×17, 9×11 and 13×13 px", "The ship's pods hold the side and retro thrusters, and its canopy is the only bright spot. Sentries turn to aim. The drill sits on an asteroid and shows its ore in a gold hopper.")}
+    {tile(meta, "anims", "turn_smooth", "Turning", "Smooth, any angle", "Your ship turns to any angle so it always points exactly at your mouse, and its pixels turn as crisp squares.")}
     {tile(meta, "anims", "boosters", "Boosters", "Four ion flames", "W fires the main engine, S fires the retro thrusters on the front of the pods, and A and D fire the side thrusters. Several can burn at once.")}
     {tile(meta, "anims", "drill", "Drill at work", "Blinks while mining", "The status light blinks while the drill collects ore.")}
     {tile(meta, "sprites", "home_base", "Home base", "82×66 px", "Docking ring with four landing pads, a lit hub, and solar wings. This is where you trade ore for credits and buy upgrades.")}
@@ -294,12 +283,10 @@ def build(dest: Path) -> Path:
 <section id="enemies">
   <div class="section-head"><h2>Enemies</h2><p class="muted">Hacker green and purple, with glowing green eyes. Each class has its own silhouette, so you can read a swarm at a glance.</p></div>
   <div class="grid">
-    {tile(meta, "sprites", "enemies", "Infantry, guard and rapid assault", "11×10, 15×12 and 9×12 px", "Infantry are small and simple so they read in swarms. Guards are wide, flat shield-walls, and they get a flashing red outline right before a ram. Rapid assault ships are thin darts that read as fast.", wide=True)}
+    {tile(meta, "sprites", "enemies", "Infantry, guard and rapid assault", "11×10, 15×12 and 9×12 px", "Infantry are small and simple so they read in swarms. Guards are wide, flat shield-walls that fold out a steel scoop before a ram. Rapid assault ships are thin darts that read as fast.", wide=True)}
     {tile(meta, "sprites", "tank", "Tank (first boss)", "29×29 px", "A front plow, a big green core and two missile pods. The pink tips show the pods are loaded.")}
-    {tile(meta, "anims", "guard_ram", "Guard ram", "Warning, then the dash", "The lane flashes before the guard dashes, so you always get a fair chance to dodge.")}
     {tile(meta, "sprites", "shots_enemy", "Enemy shots", "5×5, 1×6 and 5×9 px", "Infantry fire slow pink orbs, rapid assault ships fire fast red needles, and tanks fire homing missiles that you can shoot down.")}
-    {tile(meta, "anims", "enemy_turns", "Hard turns", "Snaps between directions", "Enemies snap to new directions instead of turning smoothly. Diagonal frames will be hand-drawn once you're happy with the upright designs.", wide=True)}
-    {tile(meta, "anims", "mothership_laser", "Mothership", "222×162 px", "Hangar bays where every wave launches, four turrets, two missile racks, green power cores, and the laser emitter at the nose. When the laser charges, the emitter and prong lights fill up while a red lane marks where the beam will hit. Then it fires.", wide=True, alt="Mothership charging and firing its laser")}
+    <div class="panel next"><h3>Ram, turns and the mothership</h3><p class="muted">The guard's ram, the eight-direction turns and the mothership with its laser are shown in <a href="#changes">What changed</a> at the top of the page.</p></div>
   </div>
 </section>
 
@@ -323,12 +310,12 @@ def build(dest: Path) -> Path:
 </section>
 
 <section id="hud">
-  <div class="section-head"><h2>HUD</h2><p class="muted">An arcade ship console laid out the way you described, in the game's own pixel font.</p></div>
+  <div class="section-head"><h2>HUD</h2><p class="muted">An arcade ship console laid out the way you described, in the game's own pixel font. The new mothership health bar is in <a href="#changes">What changed</a>.</p></div>
   <div class="grid">
     {tile(meta, "sprites", "hud_console", "Ship console", "Lower right", "The current weapon sits on top in a large slot that fills with its ammo or reload state. Your other weapons sit beside it, smaller and grey. Below that are shield, hull and armor, then lives and the ship icon.")}
     {tile(meta, "sprites", "hud_console_low", "Console in trouble", "Low hull, sniper reloading", "When hull is low its bar turns red. Here the sniper is selected and about half reloaded.")}
     {tile(meta, "sprites", "hud_radar", "Radar (upgrade)", "Lower left", "Green dots are enemies, the purple bar is the mothership, the cyan square is your base, gold marks are drills, and pink dots are incoming missiles.")}
-    {tile(meta, "sprites", "hud_top", "Top bar", "Top of the screen", "Credits and ore on the left and the wave countdown in the middle. Alerts appear under the countdown.", wide=True)}
+    {tile(meta, "sprites", "hud_top", "Top bar", "Top of the screen", "Credits and ore on the left and the wave countdown in the middle. Alerts such as LASER LOCKED appear under the countdown.", wide=True)}
   </div>
 </section>
 

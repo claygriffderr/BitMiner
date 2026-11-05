@@ -93,16 +93,52 @@ def heading(p0, p1) -> float:
     return math.degrees(math.atan2(p1[0] - p0[0], -(p1[1] - p0[1])))
 
 
+def turn(center, angle: float, lx: float, ly: float) -> tuple[float, float]:
+    """A point (lx, ly) relative to a sprite's centre, after turning the sprite `angle` degrees clockwise."""
+    a = math.radians(angle)
+    return (center[0] + lx * math.cos(a) - ly * math.sin(a), center[1] + lx * math.sin(a) + ly * math.cos(a))
+
+
+def ms_point(center, angle: float, px: float, py: float) -> tuple[float, float]:
+    """A pixel of the mothership's 220x160 interior, on screen, for a mothership turned `angle` degrees."""
+    return turn(center, angle, px + 0.5 - 110, py + 0.5 - 80)
+
+
+def aim_mothership(center, target, start: float = 0.0) -> float:
+    """The turn that points the mothership's laser emitter straight at `target`."""
+    ang = start
+    for _ in range(12):
+        ex, ey = turn(center, ang, *S.MOTHERSHIP_EMITTER)
+        ang = math.degrees(math.atan2(-(target[0] - ex), target[1] - ey))
+    return ang
+
+
+def laser_lane(scene: pix.Scene, center, angle: float, length: int, frame: int, locked: bool = False,
+               firing: bool = False) -> None:
+    """The laser's warning lane (or the beam itself) leaving the emitter of a turned mothership."""
+    ex, ey = S.MOTHERSHIP_EMITTER
+    if firing:
+        beam = S.laser_beam(length, frame)
+        scene.blit_smooth(beam, *turn(center, angle, ex, ey + 6 + length / 2), angle=angle)
+    else:
+        lane = S.laser_warning(length, frame, locked=locked)
+        scene.blit_smooth(lane, *turn(center, angle, ex, ey + 12 + length / 2), angle=angle, glow=0.6)
+
+
 # ---------------------------------------------------------------- HUD placement
 
 def place_hud(scene: pix.Scene, console_kwargs: dict, blips, alert: str | None = None, wave: int = 7,
-              next_wave: str = "0:42") -> None:
+              next_wave: str = "0:42", boss: dict | None = None) -> None:
     for img, x, y in hud.top_bar(wave=wave, next_wave=next_wave, alert=alert):
         scene.blit(img, x, y, center=False, hud=True)
     con = hud.ship_console(**console_kwargs)
     scene.blit(con, scene.w - con.width - 6, scene.h - con.height - 6, center=False, hud=True)
     rad = hud.radar(blips)
     scene.blit(rad, 6, scene.h - rad.height - 4, center=False, hud=True)
+    if boss is not None:
+        # Only shown while you're close to the mothership.
+        bb = hud.boss_bar(**boss)
+        scene.blit(bb, (scene.w - bb.width) // 2, scene.h - bb.height - 6, center=False, hud=True)
 
 
 # ---------------------------------------------------------------- scene 1: defending the drill
@@ -158,12 +194,18 @@ def defend_the_drill() -> pix.Scene:
             px_, py_ = x + (tx - x) * t, y + (ty - y) * t
             sc.blit(S.shot_infantry(int(t * 10) % 2), px_, py_)
 
-    # Guard wall in front of the formation; the middle guard is about to ram the player.
+    # Guard wall in front of the formation. The middle guard has snapped to face you, run out its
+    # steel scoop and is about to ram along the red lane.
     player = (318, 222)
-    guards = [(426, 126), (444, 130), (462, 126)]
-    ram_lane(sc, (guards[1][0] - 7, guards[1][1] + 7), (player[0] + 13, player[1] - 11), frame=0)
-    for i, (x, y) in enumerate(guards):
-        sc.blit(S.guard(0, charging=(i == 1), angle=180), x, y)
+    target = (player[0] + 12, player[1] - 12)
+    rammer = (target[0] + 88, target[1] - 88)
+    ram_heading = heading(rammer, target)
+    reach = S.scoop_reach()
+    front = turn(rammer, ram_heading, 0, -reach)
+    ram_lane(sc, front, target, frame=0)
+    for x, y in ((rammer[0] - 21, rammer[1] - 5), (rammer[0] + 21, rammer[1] - 5)):
+        sc.blit(S.guard(0, angle=180), x, y)
+    sc.blit_smooth(S.guard_interior(0, ram=3), *rammer, angle=ram_heading, outline=S.ENEMY_OUTLINE)
     sc.blit(S.explosion(3, "player", seed=12), 474, 142)
 
     # Rapid assault darts cutting in from the right.
@@ -202,20 +244,19 @@ def mothership_assault() -> pix.Scene:
     clear = [(200, 0, 460, 360)]
     scatter_asteroids(sc, 9, 12, clear, sizes=(8, 10, 12, 16, 20, 28))
 
-    ms = S.mothership(1, laser_charge=0.85)
-    mx, my = 330, 112
-    sc.blit(ms, mx, my)
-    left, top = mx - ms.width // 2, my - ms.height // 2
-    # Emitter position inside the sprite (outline adds 1px).
-    ex, ey = left + 1 + (220 - 1) / 2, top + 1 + 160 - 24
+    # The mothership has turned to track the player, and its laser has just locked onto the spot
+    # the player was in. The player is sliding left, out of the lane, before it fires.
+    center = (330, 112)
+    locked_on = (308, 262)
+    ang = aim_mothership(center, locked_on)
+    sc.blit_smooth(S.mothership(1, laser_charge=1.0, outlined=False), *center, angle=ang, outline=S.ENEMY_OUTLINE)
+    laser_lane(sc, center, ang, 260, frame=0, locked=True)
 
-    # Laser telegraph down the lane below the emitter.
-    lane = S.laser_warning(int(sc.h - ey - 12), frame=0)
-    sc.blit(lane, ex, ey + 12 + lane.height / 2, glow=0.6)
+    def at(px, py):
+        return ms_point(center, ang, px, py)
 
     # Turret fire.
-    turrets = [(left + 1 + 110 - 86, top + 1 + 42 + 10), (left + 1 + 110 + 86, top + 1 + 42 + 10),
-               (left + 1 + 110 - 32, top + 1 + 76 + 10), (left + 1 + 110 + 32, top + 1 + 76 + 10)]
+    turrets = [at(24, 52), at(196, 52), at(78, 86), at(142, 86)]
     targets = [(250, 260), (300, 280), (262, 270), (290, 262)]
     for (tx, ty), (gx, gy) in zip(turrets, targets):
         for t in (0.25, 0.55, 0.8):
@@ -223,21 +264,20 @@ def mothership_assault() -> pix.Scene:
 
     # Missiles leaving the wing racks.
     for side in (-1, 1):
-        rx = left + 1 + 110 + side * 66
-        start = (rx, top + 1 + 72)
-        end = (rx + side * 18, top + 1 + 112)
+        rx = 109.5 + side * 66
+        start, end = at(rx, 72), at(rx + side * 18, 112)
         trail(sc, along(start, end, np.linspace(0.05, 0.8, 30)))
         sc.blit_smooth(S.missile_enemy(0), *end, angle=heading(start, end) + side * 10)
 
     # Infantry pouring out of the hangar bays.
     for side in (-1, 1):
-        bx = left + 1 + 110 + side * 41
+        bx = 109.5 + side * 41
         for i in range(4):
-            sc.blit(S.infantry(i % 2, angle=180), bx + side * i * 3, top + 1 + 124 + i * 15)
+            sc.blit(S.infantry(i % 2, angle=180), *at(bx + side * i * 3, 124 + i * 15))
 
-    # A hit from the player's explosive on the hull.
-    sc.blit(S.explosion(2, "player", seed=4), 392, 50)
-    sc.blit(S.explosion(4, "player", seed=6), 360, 70)
+    # Hits from the player's explosives on the hull.
+    sc.blit(S.explosion(2, "player", seed=4), *at(172, 18))
+    sc.blit(S.explosion(4, "player", seed=6), *at(140, 38))
 
     # Two guards screening the left bay.
     sc.blit(S.guard(1, angle=180), 228, 182)
@@ -259,7 +299,8 @@ def mothership_assault() -> pix.Scene:
              (-12, -20, "enemy"), (-36, 30, "base"), (-30, 20, "drill"), (-2, -12, "danger"), (2, -12, "danger")]
     place_hud(sc, dict(shield=0.12, hull=0.34, armor_level=4, weapon="sniper", ammo=0.55,
                        others=("auto", "explosive", "laser"), low_hull=True),
-              blips, alert="LASER CHARGING - CLEAR THE LANE", wave=12, next_wave="1:05")
+              blips, alert="LASER LOCKED - CLEAR THE LANE", wave=12, next_wave="1:05",
+              boss=dict(name="MOTHERSHIP", health=0.58, recent=0.05))
     return sc
 
 

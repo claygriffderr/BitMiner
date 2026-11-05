@@ -30,14 +30,14 @@ def sheet(items: list[tuple[str, Image.Image]], k: int = 6, cols: int = 6, bg: s
 def default_items() -> list[tuple[str, Image.Image]]:
     return [
         ("player", sprites.player_ship()),
-        ("player+main", sprites.player_with_boosters(("main",))),
-        ("player+right", sprites.player_with_boosters(("main", "right"), 1)),
-        ("player 30deg", sprites.player_with_boosters(("main",), 0, 30)),
+        ("player W", sprites.player_ship(boosters=("W",))),
+        ("player W+D", sprites.player_ship(boosters=("W", "D"), frame=1)),
+        ("player 30deg", sprites.player_ship(30, ("W",))),
         ("sentry", sprites.sentry()),
         ("drill", sprites.drill()),
         ("infantry", sprites.infantry()),
         ("guard", sprites.guard()),
-        ("guard charge", sprites.guard(charging=True)),
+        ("guard ram", sprites.tight(sprites.guard(ram=3))),
         ("rapid", sprites.rapid_assault()),
         ("tank", sprites.tank()),
         ("powerup", sprites.powerup("shield")),
