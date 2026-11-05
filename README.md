@@ -67,6 +67,7 @@ python -m bitminer --selftest            # quick check with no window
 python packaging/build.py                # BitMiner.exe and its zip, in dist/
 python packaging/render_check.py dist/BitMiner shots --no-mesa   # run the built game, print what it drew
 python -m bitminer --record gifs/ --size 1280x720                 # a GIF of every gallery scene
+python -m bitminer.gallery.review_page gifs/                      # and the review page, gifs/index.html
 ```
 
 ## Art
