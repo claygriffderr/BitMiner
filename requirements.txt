@@ -1,3 +1,4 @@
-# Art pipeline (python -m art.build). Tested with Python 3.13, numpy 2.5 and Pillow 12.3.
-numpy>=1.26
-pillow>=10.0
+# Game and art pipeline. Tested with Python 3.13.
+arcade==3.3.3        # brings pyglet 2.1 and Pillow 11.3
+numpy>=1.26,<3
+pillow>=11.3,<12

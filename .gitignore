@@ -23,3 +23,8 @@ saves/
 
 # Art review output
 review/
+
+# Flight test: local tuning and crash logs
+flight_tuning.json
+flight_tuning.tmp
+bitminer_error.log

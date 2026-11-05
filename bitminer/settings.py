@@ -94,9 +94,12 @@ def settings_path() -> Path:
         base = Path(__file__).resolve().parent.parent
     if os.access(base, os.W_OK):
         return base / FILE_NAME
-    home = Path(os.environ.get("APPDATA") or Path.home()) / "BitMiner"
-    home.mkdir(parents=True, exist_ok=True)
-    return home / FILE_NAME
+    return fallback_path()
+
+
+def fallback_path() -> Path:
+    """Somewhere always writable, for when the program sits in a protected folder."""
+    return Path(os.environ.get("APPDATA") or Path.home()) / "BitMiner" / FILE_NAME
 
 
 def load(path: Path | None = None) -> Settings:
@@ -119,6 +122,7 @@ def load(path: Path | None = None) -> Settings:
 def save(settings: Settings, path: Path | None = None) -> Path:
     """Write one flat, readable JSON file: the tuning numbers first, then the display options."""
     path = path or settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     data = {**asdict(settings.tuning), **asdict(settings.display)}
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n")

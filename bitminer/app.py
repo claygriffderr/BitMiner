@@ -73,7 +73,12 @@ def app_icon() -> list[pyglet.image.ImageData]:
 class FlightTest(arcade.Window):
     def __init__(self, args):
         self.args = args
-        self.settings_path = Path(args.settings) if args.settings else settings_mod.settings_path()
+        if args.settings:
+            self.settings_path = Path(args.settings)
+        else:
+            self.settings_path = settings_mod.settings_path()
+            if not self.settings_path.exists() and settings_mod.fallback_path().exists():
+                self.settings_path = settings_mod.fallback_path()
         self.settings = settings_mod.load(self.settings_path)
         if args.crt:
             self.settings.display.crt = True
@@ -94,8 +99,10 @@ class FlightTest(arcade.Window):
 
         self.world = FlightWorld(seed=args.seed)
         self.textures = GameTextures()
-        self.particles = Particles(self.textures.pixel, (self.world.width, self.world.height))
-        self.renderer = Renderer(self, self.textures, self.world.field, self.particles)
+        world_size = (self.world.width, self.world.height)
+        self.particles = Particles(self.textures.pixel, world_size, capacity=600)
+        self.sparks = Particles(self.textures.pixel, world_size, capacity=200)
+        self.renderer = Renderer(self, self.textures, self.world.field, self.particles, self.sparks)
         self.camera = FollowCamera()
         self.panel = TuningPanel(self.textures, self.settings.tuning, self.settings.display)
         self.panel.open = not args.no_panel
@@ -199,6 +206,13 @@ class FlightTest(arcade.Window):
         try:
             settings_mod.save(self.settings, self.settings_path)
             self.panel.flash("SAVED")
+            return
+        except OSError:
+            pass
+        try:   # the program's folder can be read-only on some PCs
+            self.settings_path = settings_mod.fallback_path()
+            settings_mod.save(self.settings, self.settings_path)
+            self.panel.flash("SAVED")
         except OSError:
             self.panel.flash("COULD NOT SAVE")
 
@@ -235,6 +249,7 @@ class FlightTest(arcade.Window):
         self.hit_effects(impacts)
         self.exhaust(controls, dt)
         self.particles.step(dt)
+        self.sparks.step(dt)
         self.camera.update(self.world.ship, tuning, dt)
         self.flash = max(0.0, self.flash - dt * 8)
         self.flame_clock += dt
@@ -262,11 +277,14 @@ class FlightTest(arcade.Window):
                 continue    # resting contact and grazes don't spark
             strongest = max(strongest, hit.impulse)
             away = math.atan2(-hit.ny, -hit.nx)
-            carry = (ship.vx * 0.3, ship.vy * 0.3)
-            self.particles.burst("spark", hit.x, hit.y, away, 0.9, int(min(26, max(3, dv / 10))),
-                                 (30, 60 + dv * 0.5), (0.15, 0.4), carry)
-            self.particles.burst("dust", hit.x, hit.y, away, 1.2, int(min(14, max(2, dv / 18))),
-                                 (8, 30 + dv * 0.2), (0.4, 1.0))
+            carry = (ship.vx * 0.25, ship.vy * 0.25)
+            # Sparks skid off along the rock's surface, both ways, angled a little away from it.
+            count = int(min(30, max(4, dv / 8)))
+            for side in (1, -1):
+                self.sparks.burst("spark", hit.x, hit.y, away + side * 1.15, 0.35, count // 2,
+                                  (40, 70 + dv * 0.6), (0.18, 0.45), carry)
+            self.particles.burst("dust", hit.x + hit.nx * 2, hit.y + hit.ny * 2, away, 1.0,
+                                 int(min(14, max(2, dv / 18))), (8, 30 + dv * 0.2), (0.4, 1.0))
             self.camera.kick(max(0.0, min(0.75, (dv - 25) / 260)))
             self.flash = max(self.flash, min(1.0, dv / 160) * 0.7)
         if strongest > 0:

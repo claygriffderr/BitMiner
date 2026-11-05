@@ -51,12 +51,14 @@ def snap(v, k: int):
 
 
 class Renderer:
-    def __init__(self, window: arcade.Window, art: GameTextures, field: AsteroidField, particles: Particles):
+    def __init__(self, window: arcade.Window, art: GameTextures, field: AsteroidField,
+                 under: Particles, over: Particles):
         self.window = window
         self.ctx = window.ctx
         self.art = art
         self.field = field
-        self.particles = particles
+        self.under = under      # exhaust and dust, drawn behind the ship
+        self.over = over        # sparks, drawn in front of it
         self.backdrop = Backdrop(self.ctx)
         self.outline = Outline(self.ctx, rgba("hull_outline"))
         self.composite = Composite(self.ctx)
@@ -188,7 +190,8 @@ class Renderer:
         cam_y = float(snap(view.cam_y, k))
         offsets = self.backdrop.offsets(view.cam_ux, view.cam_uy, VIEW, k)
         wraps = self._wrap_offsets(cam_x, cam_y, VIEW[0] / 2, VIEW[1] / 2)
-        self.particles.sync(cam_x, cam_y, k)
+        self.under.sync(cam_x, cam_y, k)
+        self.over.sync(cam_x, cam_y, k)
 
         # Where the ship lands on screen, in whole screen pixels.
         rel_x = wrap_delta(view.ship_x - cam_x, self.field.width)
@@ -223,7 +226,7 @@ class Renderer:
             self.rocks.draw(pixelated=True)
         self.world_cam.position = (cam_x, cam_y)
         self.world_cam.use()
-        self.particles.sprites.draw(pixelated=True)
+        self.under.sprites.draw(pixelated=True)
 
         self.hw_cam.use()
         self.hw_fbo.clear(color=(0, 0, 0, 0))
@@ -233,6 +236,8 @@ class Renderer:
         self.outline.draw(self.hw_tex, (qx, qy), k, (W, H))
         self.screen_cam.use()
         self.flames.draw(pixelated=True)
+        self.world_cam.use()
+        self.over.sprites.draw(pixelated=True)
 
         # 2. Light, combined with max() like the art's light layer.
         self.light_fbo.use()
@@ -246,7 +251,8 @@ class Renderer:
                 self.rock_glow.draw(pixelated=True)
             self.light_cam.position = (cam_x, cam_y)
             self.light_cam.use()
-            self.particles.light_sprites.draw(pixelated=True)
+            self.under.light_sprites.draw(pixelated=True)
+            self.over.light_sprites.draw(pixelated=True)
             self.light_screen.use()
             self.ship_light.draw(pixelated=True)
         finally:
