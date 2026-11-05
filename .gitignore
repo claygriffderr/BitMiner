@@ -20,3 +20,6 @@ Thumbs.db
 # Local saves and logs
 saves/
 *.log
+
+# Art review output
+review/
