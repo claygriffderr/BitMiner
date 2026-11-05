@@ -1,4 +1,4 @@
-"""Shader passes: the ship's outline, bloom, and the final picture with the optional CRT filter.
+"""Shader passes: the outline drawn round ships after they turn, bloom, and the final picture with the optional CRT filter.
 
 All of them follow the art pipeline (`art/pix.py`): the outline is drawn after rotating, glow is
 two Gaussian blurs of the light layer screen-blended over the picture, and the CRT filter darkens
@@ -116,6 +116,13 @@ class Outline:
         self.pass_["radius"] = int(k)
         w, h = hw_texture.size
         self.pass_.draw((origin[0], origin[1], w, h), target)
+
+    def draw_rect(self, layer, rect: tuple[int, int, int, int], k: int, target: tuple[int, int]) -> None:
+        """Outline part of a full-size layer (one the same size as the target), only inside `rect`."""
+        layer.use(0)
+        self.pass_["origin"] = (0.0, 0.0)
+        self.pass_["radius"] = int(k)
+        self.pass_.draw(rect, target)
 
 
 class Bloom:

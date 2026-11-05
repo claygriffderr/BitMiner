@@ -54,3 +54,11 @@ def test_slider_snapping_and_text():
     assert spec["damper"].text(0.25) == "0.25"
     assert spec["mass"].text(1.0) == "1.0"
     assert spec["turn_rate"].text(300) == "300"
+
+
+def test_starting_values_come_from_the_data_file():
+    data = json.loads(S.DATA_FILE.read_text())["flight"]
+    t = S.Tuning()
+    assert [item["key"] for item in data] == [spec.key for spec in S.SLIDERS]
+    for item in data:
+        assert getattr(t, item["key"]) == item["value"]

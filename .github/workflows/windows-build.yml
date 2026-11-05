@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RELEASE_TAG: flight-test
-  ZIP: dist/BitMiner-FlightTest-windows.zip
+  RELEASE_TAG: weapon-gallery
+  ZIP: dist/BitMiner-WeaponGallery-windows.zip
 
 jobs:
   windows:
@@ -53,7 +53,8 @@ jobs:
           Write-Host "Built game passed its self-test"
 
       # The build machine has no graphics card, so this borrows Mesa's software OpenGL to fly a
-      # scripted route in the real exe, then prints the game's notes and a text copy of what it drew.
+      # scripted route and play a gallery scene in the real exe, then prints the game's notes and a
+      # text copy of what it drew.
       # Informational: it never blocks a release.
       - name: Render check with software OpenGL
         id: render
@@ -74,7 +75,7 @@ jobs:
       - name: Keep the zip
         uses: actions/upload-artifact@v4
         with:
-          name: BitMiner-FlightTest-windows
+          name: BitMiner-WeaponGallery-windows
           path: ${{ env.ZIP }}
 
       - name: Publish the download
@@ -86,4 +87,4 @@ jobs:
           gh release delete $env:RELEASE_TAG --yes --cleanup-tag 2>$null
           $LASTEXITCODE = 0
           gh release create $env:RELEASE_TAG $env:ZIP --prerelease --target $env:GITHUB_SHA `
-            --title "BitMiner flight test (sprint 2)" --notes-file packaging/release_notes.md
+            --title "BitMiner weapon gallery (sprint 3)" --notes-file packaging/release_notes.md

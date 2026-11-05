@@ -1,4 +1,5 @@
-"""A quick check that needs no window: build every picture, fly the ship, save and load settings.
+"""A quick check that needs no window: build every picture, fly the ship, play some gallery
+scenes, save and load settings.
 
 The Windows build runs this on the build machine (`BitMiner.exe --selftest`) to prove that
 everything it needs made it into the package.
@@ -46,6 +47,36 @@ def run() -> int:
         assert math.isfinite(s.x) and math.isfinite(s.vx)
         assert 0 <= s.x < world.width and 0 <= s.y < world.height
     assert hits > 0, "the scripted flight never hit a rock"
+
+    # Combat: the weapon numbers load, the effect pictures build, and a few gallery scenes play through.
+    from art import effects as E
+    from .combat.specs import WEAPONS
+    from .combat.stage import Stage
+    from .gallery import scenes as SC
+    from .gallery.director import Director
+
+    assert set(WEAPONS) == {"auto", "sniper", "missile", "laser"}
+    for owner in E.TONES:
+        assert E.flare(owner, 0).size == (5, 5)
+    assert E.shield_bubble(14).size == (31, 31)
+    assert S.explosion(2, "enemy", 33, 1).size == (33, 33)
+
+    class Quiet:
+        def burst(self, *a, **k):
+            pass
+
+        def emit(self, *a, **k):
+            pass
+
+    for key in ("missile-tank", "guard_ram-shield_breaks", "mothership_laser-armor"):
+        stage = Stage(Quiet(), Quiet())
+        director = Director(stage, settings.Tuning(), (1600.0, 1000.0))
+        director.start(SC.BY_KEY[key])
+        for _ in range(60 * 16):
+            director.step(1 / 60)
+            if director.finished:
+                break
+        assert director.finished, f"gallery scene {key} never finished"
 
     # Settings.
     with tempfile.TemporaryDirectory() as d:

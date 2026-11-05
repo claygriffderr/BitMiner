@@ -1,4 +1,4 @@
-"""Start the flight test: `python -m bitminer` (or BitMiner.exe in the Windows build)."""
+"""Start the game: `python -m bitminer` (or BitMiner.exe in the Windows build)."""
 
 from __future__ import annotations
 
@@ -14,14 +14,18 @@ def _size(text: str) -> tuple[int, int]:
 
 
 def parse(argv=None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(prog="bitminer", description="BitMiner flight test")
+    p = argparse.ArgumentParser(prog="bitminer", description="BitMiner")
     p.add_argument("--selftest", action="store_true", help="check the game without opening a window")
+    p.add_argument("--mode", choices=["menu", "flight", "gallery"], help="start here instead of the menu")
+    p.add_argument("--scene", help="weapon gallery scene to open first, like missile-tank")
+    p.add_argument("--record", help="record a GIF of every weapon gallery scene into this folder, then quit")
+    p.add_argument("--scenes", help="with --record: only these scenes, comma separated")
     p.add_argument("--size", type=_size, help="window size, like 1280x720")
     p.add_argument("--crt", action="store_true", help="start with the CRT filter on")
     p.add_argument("--no-panel", action="store_true", help="start with the tuning panel hidden")
     p.add_argument("--seed", type=int, default=7, help="asteroid field layout")
     p.add_argument("--settings", help="settings file to use instead of flight_tuning.json")
-    p.add_argument("--smoke", type=float, help="fly a scripted route for this many seconds, then quit")
+    p.add_argument("--smoke", type=float, help="run for this many seconds on a script (the flight test flies a route), then quit")
     p.add_argument("--shots", type=lambda s: [float(v) for v in s.split(",")],
                    help="with --smoke: take screenshots at these times, like 1,2.5,4")
     p.add_argument("--shot-dir", help="where screenshots go")
@@ -68,7 +72,7 @@ def main(argv=None) -> int:
         from .app import run
         run(args)
     except Exception:
-        _report_crash(dialog=not args.smoke)
+        _report_crash(dialog=not (args.smoke or args.record))
         return 1
     return 0
 

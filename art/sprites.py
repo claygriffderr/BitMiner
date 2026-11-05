@@ -389,6 +389,11 @@ def _bevel_into(out: np.ndarray, mask: np.ndarray, tones: tuple[str, str, str]) 
 
 def tank(frame: int = 0, pods_loaded: bool = True, angle: float = 0.0) -> Image.Image:
     """27x27 boss: a front plow, two missile pods and a big green core."""
+    return _finish(tank_interior(frame, pods_loaded), ENEMY_OUTLINE, angle)
+
+
+def tank_interior(frame: int = 0, pods_loaded: bool = True) -> Image.Image:
+    """The tank without its outline."""
     s = 27
     c = (s - 1) / 2
     yy, xx = np.mgrid[0:s, 0:s]
@@ -428,7 +433,7 @@ def tank(frame: int = 0, pods_loaded: bool = True, angle: float = 0.0) -> Image.
     # Rear vents.
     for vx in range(9, 18, 2):
         out[22, vx] = rgba("alien_green_dark" if frame % 2 else "alien_green")
-    return _finish(Image.fromarray(out), ENEMY_OUTLINE, angle)
+    return Image.fromarray(out)
 
 
 def mothership(frame: int = 0, laser_charge: float = 0.0, outlined: bool = True) -> Image.Image:

@@ -1,4 +1,8 @@
-"""Flight tuning (every number the on-screen sliders change), display options, and where they are saved."""
+"""Flight tuning (every number the on-screen sliders change), display options, and where they are saved.
+
+No tuning number lives in the code. `data/tuning.json` holds each slider's starting value and
+range, and the player's own changes save to flight_tuning.json next to the program.
+"""
 
 from __future__ import annotations
 
@@ -9,20 +13,29 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 FILE_NAME = "flight_tuning.json"
+DATA_FILE = Path(__file__).resolve().parent / "data" / "tuning.json"
+
+_SPECS = json.loads(DATA_FILE.read_text(encoding="utf-8"))["flight"]
+DEFAULTS: dict[str, float] = {item["key"]: float(item["value"]) for item in _SPECS}
+
+
+def _start(key: str):
+    """A field whose starting value comes from the data file."""
+    return field(default_factory=lambda: DEFAULTS[key])
 
 
 @dataclass
 class Tuning:
-    thrust_main: float = 260.0   # W, forward booster. Game pixels per second squared at mass 1.
-    thrust_side: float = 160.0   # A and D, strafe boosters.
-    thrust_retro: float = 140.0  # S, retro boosters on the front of the pods.
-    turn_rate: float = 300.0     # How fast the ship turns toward the mouse, degrees per second.
-    damper: float = 0.25         # Drift damper: how fast speed bleeds off, per second. 0 is off.
-    top_speed: float = 240.0     # Soft cap. Faster than this, speed is pulled back quickly.
-    mass: float = 1.0            # Heavier: slower to speed up, hits harder, knocked around less.
-    bounce: float = 0.4          # How springy hits against asteroids are, 0 to 1.
-    camera_lead: float = 0.5     # How far the camera looks ahead of the ship, 0 to 1.
-    shake: float = 1.0           # Screen shake strength on impacts.
+    thrust_main: float = _start("thrust_main")    # W, forward booster. Game pixels per second squared at mass 1.
+    thrust_side: float = _start("thrust_side")    # A and D, strafe boosters.
+    thrust_retro: float = _start("thrust_retro")  # S, retro boosters on the front of the pods.
+    turn_rate: float = _start("turn_rate")        # How fast the ship turns toward the mouse, degrees per second.
+    damper: float = _start("damper")              # Drift damper: how fast speed bleeds off, per second. 0 is off.
+    top_speed: float = _start("top_speed")        # Soft cap. Faster than this, speed is pulled back quickly.
+    mass: float = _start("mass")                  # Heavier: slower to speed up, hits harder, knocked around less.
+    bounce: float = _start("bounce")              # How springy hits against asteroids are, 0 to 1.
+    camera_lead: float = _start("camera_lead")    # How far the camera looks ahead of the ship, 0 to 1.
+    shake: float = _start("shake")                # Screen shake strength on impacts.
 
     def clamped(self) -> "Tuning":
         values = {}
@@ -69,19 +82,10 @@ class SliderSpec:
         return f"{value:.2f}"
 
 
-# The order here is the order on screen.
-SLIDERS: tuple[SliderSpec, ...] = (
-    SliderSpec("thrust_main", "MAIN THRUST", 60, 700, 10),
-    SliderSpec("thrust_side", "SIDE THRUST", 30, 500, 10),
-    SliderSpec("thrust_retro", "RETRO THRUST", 30, 500, 10),
-    SliderSpec("turn_rate", "TURN RATE", 60, 900, 10),
-    SliderSpec("damper", "DRIFT DAMPER", 0, 2, 0.05),
-    SliderSpec("top_speed", "TOP SPEED", 80, 700, 10),
-    SliderSpec("mass", "MASS", 0.4, 4, 0.1),
-    SliderSpec("bounce", "BOUNCE", 0, 1, 0.05),
-    SliderSpec("camera_lead", "CAMERA LEAD", 0, 1, 0.05),
-    SliderSpec("shake", "SCREEN SHAKE", 0, 2, 0.1),
-)
+# The order here (the data file's order) is the order on screen.
+SLIDERS: tuple[SliderSpec, ...] = tuple(
+    SliderSpec(item["key"], item["label"], float(item["min"]), float(item["max"]), float(item["step"]))
+    for item in _SPECS)
 
 assert {s.key for s in SLIDERS} == {f.name for f in fields(Tuning)}
 
