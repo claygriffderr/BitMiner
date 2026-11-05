@@ -8,4 +8,4 @@ If Windows shows *"Windows protected your PC"*, click **More info**, then **Run 
 
 **Tuning:** drag the sliders while you fly. Your settings save to `flight_tuning.json` next to `BitMiner.exe`. Send that file back when the ship feels right.
 
-This build is made automatically from the latest commit on the sprint branch.
+This build is made automatically from the latest code.

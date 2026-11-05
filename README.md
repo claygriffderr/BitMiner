@@ -52,6 +52,7 @@ pip install -r requirements-dev.txt
 python -m pytest                         # unit tests (BITMINER_GL_TESTS=1 also drives the window)
 python -m bitminer --selftest            # quick check with no window
 python packaging/build.py                # BitMiner.exe and its zip, in dist/
+python packaging/render_check.py dist/BitMiner shots --no-mesa   # fly the built game, print what it drew
 ```
 
 ## Art
