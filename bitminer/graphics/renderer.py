@@ -1,7 +1,8 @@
-"""Draws a frame of the flight test, following the art pipeline.
+"""Draws a frame of the game, following the art pipeline.
 
-1. Scene: backdrop, asteroids, particles, then the ship (rotated at screen resolution and outlined
-   after rotating, so the outline never breaks up), then its booster flames.
+1. Scene: backdrop, asteroids, warning lanes, particles, enemy hulls and then the ship (each
+   rotated at screen resolution and outlined after rotating, so outlines never break up), booster
+   flames, then shots, beams, explosions and sparks.
 2. Light: the glowing pixels of everything, at game resolution, blurred into bloom.
 3. Composite: bloom screen-blended over the scene, then the HUD and tuning panel on top.
 4. Present: integer-scaled into the window with black bars, through the optional CRT filter.
@@ -12,6 +13,7 @@ The game is 640x360 game pixels. Each one is k x k screen pixels, with k as big 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import arcade
 import numpy as np
@@ -43,6 +45,8 @@ class FrameView:
     flame_frame: int
     flash: float          # 0..1, the white flash after a hit.
     crt: bool
+    ship_visible: bool = True
+    stage: Any = None     # a StageDrawer with this frame's combat layers, or None
 
 
 def snap(v, k: int):
@@ -61,6 +65,7 @@ class Renderer:
         self.over = over        # sparks, drawn in front of it
         self.backdrop = Backdrop(self.ctx)
         self.outline = Outline(self.ctx, rgba("hull_outline"))
+        self.enemy_outline = Outline(self.ctx, rgba("alien_purple_black"))
         self.composite = Composite(self.ctx)
         self.present = Present(self.ctx)
         self.light_tex, self.light_fbo = render_texture(self.ctx, VIEW, nearest=False)
@@ -71,23 +76,7 @@ class Renderer:
                                             position=(VIEW[0] / 2, VIEW[1] / 2), zoom=1,
                                             render_target=self.light_fbo)
 
-        # One sprite per asteroid, kept at its world position. Ore rocks also get a glow sprite.
-        self.rocks = arcade.SpriteList(capacity=len(field))
-        self.rock_glow = arcade.SpriteList()
-        self.rock_sprites: list[arcade.Sprite] = []
-        self.glow_sprites: dict[int, arcade.Sprite] = {}
-        for i in range(len(field)):
-            key = (int(field.size[i]), int(field.variant[i]), bool(field.ore[i]))
-            s = arcade.Sprite(art.rock[key])
-            self.rocks.append(s)
-            self.rock_sprites.append(s)
-            if key in art.rock_light:
-                g = arcade.Sprite(art.rock_light[key])
-                self.rock_glow.append(g)
-                self.glow_sprites[i] = g
-        self._rx = np.full(len(field), np.nan)
-        self._ry = np.full(len(field), np.nan)
-        self.reach = float(field.size.max()) / 2 + 4 if len(field) else 0.0
+        self.set_field(field)
 
         # The ship: its interior is drawn into a small patch, then outlined into the scene.
         self.hw_list = arcade.SpriteList()
@@ -111,6 +100,27 @@ class Renderer:
         self.origin = (0, 0)
         self.resize(*window.get_framebuffer_size())
 
+    def set_field(self, field: AsteroidField) -> None:
+        """Show this asteroid field: one sprite per rock, plus a glow sprite for ore rocks."""
+        art = self.art
+        self.field = field
+        self.rocks = arcade.SpriteList(capacity=max(1, len(field)))
+        self.rock_glow = arcade.SpriteList()
+        self.rock_sprites: list[arcade.Sprite] = []
+        self.glow_sprites: dict[int, arcade.Sprite] = {}
+        for i in range(len(field)):
+            key = (int(field.size[i]), int(field.variant[i]), bool(field.ore[i]))
+            s = arcade.Sprite(art.rock[key])
+            self.rocks.append(s)
+            self.rock_sprites.append(s)
+            if key in art.rock_light:
+                g = arcade.Sprite(art.rock_light[key])
+                self.rock_glow.append(g)
+                self.glow_sprites[i] = g
+        self._rx = np.full(len(field), np.nan)
+        self._ry = np.full(len(field), np.nan)
+        self.reach = float(field.size.max()) / 2 + 4 if len(field) else 0.0
+
     # ------------------------------------------------------------ sizing
 
     def resize(self, fb_w: int, fb_h: int) -> None:
@@ -125,11 +135,14 @@ class Renderer:
         self.size = (W, H)
         self.scene_tex, self.scene_fbo = render_texture(self.ctx, (W, H))
         self.comp_tex, self.comp_fbo = render_texture(self.ctx, (W, H))
+        self.hull_tex, self.hull_fbo = render_texture(self.ctx, (W, H))
         side = self.art.ship_canvas * k + 2       # same parity as the ship, so it sits on whole pixels
         self.hw_tex, self.hw_fbo = render_texture(self.ctx, (side, side))
         self.hw_side = side
         self.world_cam = arcade.Camera2D(viewport=arcade.LBWH(0, 0, W, H), position=(0, 0), zoom=k,
                                          render_target=self.scene_fbo)
+        self.hull_cam = arcade.Camera2D(viewport=arcade.LBWH(0, 0, W, H), position=(0, 0), zoom=k,
+                                        render_target=self.hull_fbo)
         self.screen_cam = arcade.Camera2D(viewport=arcade.LBWH(0, 0, W, H), position=(W / 2, H / 2),
                                           zoom=1, render_target=self.scene_fbo)
         self.hw_cam = arcade.Camera2D(viewport=arcade.LBWH(0, 0, side, side), position=(0, 0), zoom=1,
@@ -216,6 +229,12 @@ class Renderer:
         self.flash.alpha = int(255 * max(0.0, min(1.0, view.flash)))
         self.flash.visible = view.flash > 0
         self.body_light.position = (ship_cx / k, ship_cy / k)
+        self.body.visible = self.body_light.visible = view.ship_visible
+        if not view.ship_visible:
+            self.flash.visible = False
+            for key in "WSAD":
+                self.flame[key].visible = self.flame_light[key].visible = False
+        stage = view.stage
 
         # 1. Scene.
         self.scene_fbo.use()
@@ -226,17 +245,35 @@ class Renderer:
             self.rocks.draw(pixelated=True)
         self.world_cam.position = (cam_x, cam_y)
         self.world_cam.use()
+        if stage is not None:
+            stage.under.draw()
         self.under.sprites.draw(pixelated=True)
 
-        self.hw_cam.use()
-        self.hw_fbo.clear(color=(0, 0, 0, 0))
-        self.hw_list.draw(pixelated=True)
-        self.scene_fbo.use()
-        ctx.viewport = (0, 0, W, H)
-        self.outline.draw(self.hw_tex, (qx, qy), k, (W, H))
-        self.screen_cam.use()
-        self.flames.draw(pixelated=True)
+        # Enemy hulls get their own layer, outlined in one pass after they have turned.
+        if stage is not None:
+            rect = stage.hull_rect(cam_x, cam_y, k, (W, H))
+            if rect is not None:
+                self.hull_fbo.use()
+                self.hull_fbo.clear(color=(0, 0, 0, 0))
+                self.hull_cam.position = (cam_x, cam_y)
+                self.hull_cam.use()
+                stage.hulls.draw()
+                self.scene_fbo.use()
+                ctx.viewport = (0, 0, W, H)
+                self.enemy_outline.draw_rect(self.hull_tex, rect, k, (W, H))
+
+        if view.ship_visible:
+            self.hw_cam.use()
+            self.hw_fbo.clear(color=(0, 0, 0, 0))
+            self.hw_list.draw(pixelated=True)
+            self.scene_fbo.use()
+            ctx.viewport = (0, 0, W, H)
+            self.outline.draw(self.hw_tex, (qx, qy), k, (W, H))
+            self.screen_cam.use()
+            self.flames.draw(pixelated=True)
         self.world_cam.use()
+        if stage is not None:
+            stage.over.draw()
         self.over.sprites.draw(pixelated=True)
 
         # 2. Light, combined with max() like the art's light layer.
@@ -253,6 +290,8 @@ class Renderer:
             self.light_cam.use()
             self.under.light_sprites.draw(pixelated=True)
             self.over.light_sprites.draw(pixelated=True)
+            if stage is not None:
+                stage.light.draw()
             self.light_screen.use()
             self.ship_light.draw(pixelated=True)
         finally:

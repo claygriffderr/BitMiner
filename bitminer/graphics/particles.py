@@ -1,4 +1,4 @@
-"""Single-pixel particles: booster exhaust, hull sparks and rock dust.
+"""Single-pixel particles: booster exhaust, hull sparks, rock dust, and combat sparks and smoke.
 
 State lives in numpy arrays; each live particle is one 1x1 sprite, tinted along a colour ramp as it
 ages. Exhaust is drawn into the light layer too, so it glows like the flames.
@@ -21,9 +21,17 @@ RAMPS = {
     "exhaust": ["ion_white", "ion_hi", "ion", "ion_dark"],
     "spark": ["hull_outline", "hull_hi", "hull_light", "hull_mid"],
     "dust": ["rock_rim", "rock_light", "rock_mid", "rock_dark"],
+    # Combat: your hits throw cyan, enemy hulls green and purple, anything that hurts you pink and
+    # red, guard scoops steel, and missiles leave grey smoke.
+    "ion_spark": ["ion_white", "ion_hi", "ion", "ion_dark"],
+    "alien_debris": ["alien_eye", "alien_green_hi", "alien_purple_hi", "alien_purple"],
+    "danger_spark": ["danger_white", "danger_pink_hi", "danger_pink", "danger_red"],
+    "steel": ["steel_hi", "steel_light", "steel_mid", "steel_dark"],
+    "smoke": ["hull_light", "hull_mid", "hull_dark", "rock_shadow"],
 }
 KINDS = list(RAMPS)
-DRAG = {"exhaust": 2.5, "spark": 1.5, "dust": 1.2}
+DRAG = {"exhaust": 2.5, "spark": 1.5, "dust": 1.2, "ion_spark": 2.0, "alien_debris": 1.6,
+        "danger_spark": 2.0, "steel": 1.4, "smoke": 1.8}
 
 
 def _ramp_colors(kind: str) -> list[tuple[int, int, int, int]]:

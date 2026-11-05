@@ -19,22 +19,32 @@ Early development, built in short sprints with a playable or reviewable demo at 
 6. Adaptive AI
 7. Polish and share
 
-## Play the flight test
+## Play it
 
-Windows: download `BitMiner-FlightTest-windows.zip` from the
-[flight-test release](https://github.com/claygriffderr/BitMiner/releases/tag/flight-test), unzip it
-and run `BitMiner.exe`. Each push to a sprint branch rebuilds it.
+Windows: download `BitMiner-WeaponGallery-windows.zip` from the
+[weapon-gallery release](https://github.com/claygriffderr/BitMiner/releases/tag/weapon-gallery), unzip it
+and run `BitMiner.exe`. Each push to a sprint branch rebuilds it. (The sprint 2 build stays on the
+[flight-test release](https://github.com/claygriffderr/BitMiner/releases/tag/flight-test).)
 
 From source (Python 3.13):
 
 ```
 pip install -r requirements.txt
-python -m bitminer
+python -m bitminer                       # the menu
+python -m bitminer --mode gallery        # straight into the weapon gallery
 ```
 
-W main booster, S retro, A and D strafe, mouse to aim. Tab shows the tuning panel, C toggles the
-CRT filter, R puts the ship back at the start, F11 is full screen. Slider changes save to
-`flight_tuning.json`.
+The menu leads to the flight test and the weapon gallery; Esc goes back to it.
+
+- Flight test: W main booster, S retro, A and D strafe, mouse to aim, R puts the ship back.
+- Weapon gallery: Left and Right pick a weapon or enemy attack, Up and Down the target or defense,
+  Space replays, F switches between the auto pilot and free-fly (WASD, mouse, click to fire, 1 to 4
+  picks the weapon).
+- Everywhere: Tab shows the tuning panel, C toggles the CRT filter, F11 is full screen. Slider
+  changes save to `flight_tuning.json`.
+
+Starting values for the sliders live in `bitminer/data/tuning.json`, and every weapon, enemy and
+defense number in `bitminer/data/weapons.json`, so none of them are fixed in code.
 
 ## Tech
 
@@ -44,15 +54,20 @@ with pixel-perfect integer scaling.
 - `bitminer/flight.py`: the ship's flight model (mass, boosters, turning, damper, soft speed cap)
 - `bitminer/field.py`: the wrap-around asteroid field and its collisions
 - `bitminer/graphics/`: the renderer (outline after rotation, bloom, parallax backdrop, CRT filter)
-- `bitminer/ui/`: the tuning panel and HUD, in the pixel font
-- `bitminer/settings.py`: every tunable number and where it is saved
+- `bitminer/combat/`: the combat simulation (shots, missiles, beams, hits, shields, explosions)
+- `bitminer/gallery/`: the weapon gallery's scenes and the director that plays them
+- `bitminer/views/`: the menu, flight test and gallery screens
+- `bitminer/ui/`: the tuning panel and HUDs, in the pixel font
+- `bitminer/settings.py`: the tuning sliders and where your settings are saved
 
 ```
 pip install -r requirements-dev.txt
 python -m pytest                         # unit tests (BITMINER_GL_TESTS=1 also drives the window)
 python -m bitminer --selftest            # quick check with no window
 python packaging/build.py                # BitMiner.exe and its zip, in dist/
-python packaging/render_check.py dist/BitMiner shots --no-mesa   # fly the built game, print what it drew
+python packaging/render_check.py dist/BitMiner shots --no-mesa   # run the built game, print what it drew
+python -m bitminer --record gifs/ --size 1280x720                 # a GIF of every gallery scene
+python -m bitminer.gallery.review_page gifs/                      # and the review page, gifs/index.html
 ```
 
 ## Art

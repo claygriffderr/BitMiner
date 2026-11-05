@@ -10,6 +10,7 @@ W, H = 3200.0, 2000.0
 
 def still(**kw) -> Tuning:
     """Tuning with the damper and cap out of the way, so thrust is easy to measure."""
+    kw.setdefault("mass", 1.0)
     return Tuning(damper=0.0, top_speed=10_000.0, **kw)
 
 
@@ -104,7 +105,7 @@ def test_soft_cap_pulls_back_quickly_but_not_instantly():
 
 def test_holding_forward_settles_near_top_speed():
     ship = Ship(0, 0)
-    tuning = Tuning(damper=0.0, top_speed=240)
+    tuning = Tuning(damper=0.0, top_speed=240, thrust_main=260, mass=1.0)
     run(ship, Controls(forward=True), tuning, 8.0)
     assert 240 < ship.speed < 300
 

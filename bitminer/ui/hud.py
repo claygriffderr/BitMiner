@@ -13,7 +13,7 @@ from .text import TextLayer, text_width
 VIEW_W, VIEW_H = 640, 360
 
 HELP = [("WASD", " BOOSTERS   "), ("MOUSE", " AIM   "), ("TAB", " TUNING   "), ("C", " CRT   "),
-        ("R", " RESET SHIP   "), ("F11", " FULL SCREEN   "), ("ESC", " QUIT")]
+        ("R", " RESET SHIP   "), ("F11", " FULL SCREEN   "), ("ESC", " MENU")]
 
 CONSOLE_W, CONSOLE_H = 112, 33
 HIT_SHOW = 2.5   # seconds a hit stays on the readout

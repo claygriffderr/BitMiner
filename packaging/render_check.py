@@ -1,10 +1,11 @@
-"""Render check for the built game: fly the scripted route in it and report what it drew.
+"""Render check for the built game: fly the scripted route, play a gallery scene, and report what it drew.
 
 GitHub's Windows build machines have no graphics card, and Windows alone only offers OpenGL 1.1
 there, so this borrows Mesa's software OpenGL (llvmpipe) from the mesa-dist-win project and puts
-it next to a copy of the game. Then it flies the --smoke route and prints everything needed to
-judge the result from the build log alone: the game's progress notes, any crash log, and for
-each screenshot a grid of average colours, plus a small thumbnail of the last one in base64.
+it next to a copy of the game. Then it runs each scripted check (the flight test's --smoke route,
+then the mothership laser scene in the weapon gallery) and prints everything needed to judge the
+result from the build log alone: the game's progress notes, any crash log, and for each
+screenshot a grid of average colours, plus a small thumbnail of the last one in base64.
 
     python packaging/render_check.py dist/BitMiner shots
     python packaging/render_check.py dist/BitMiner shots --no-mesa    # use this machine's OpenGL
@@ -28,7 +29,11 @@ from PIL import Image
 MESA_REPO = "pal1000/mesa-dist-win"
 MESA_PATTERN = "mesa3d-*-release-msvc.7z"
 MESA_TRIES = 4      # newest releases to try, in case the newest is packed differently
-SMOKE = ["--smoke", "4", "--shots", "1.5,3.5", "--size", "1280x720"]
+RUNS = {
+    "flight": ["--mode", "flight", "--smoke", "4", "--shots", "1.5,3.5", "--size", "1280x720"],
+    "gallery": ["--mode", "gallery", "--scene", "mothership_laser-shield_breaks", "--smoke", "5",
+                "--shots", "3.5,4.5", "--size", "1280x720"],
+}
 TIMEOUT = 180       # seconds; the route takes well under a minute with software OpenGL
 GRID = (16, 9)      # average colours printed for each screenshot
 THUMB = (320, 180)
@@ -87,10 +92,10 @@ def grab_desktop(path: Path) -> None:
         say(f"Could not take a picture of the desktop: {e}")
 
 
-def run_game(game: Path, shots: Path) -> int | None:
-    """Fly the route. Returns the exit code, or None if the game never finished."""
+def run_game(game: Path, shots: Path, script: list[str]) -> int | None:
+    """Run one scripted check. Returns the exit code, or None if the game never finished."""
     exe = game / ("BitMiner.exe" if os.name == "nt" else "BitMiner")
-    cmd = [str(exe), *SMOKE, "--shot-dir", str(shots), "--settings", str(shots / "tuning.json")]
+    cmd = [str(exe), *script, "--shot-dir", str(shots), "--settings", str(shots / "tuning.json")]
     say("Running:", " ".join(cmd))
     start = time.monotonic()
     proc = subprocess.Popen(cmd, cwd=game)
@@ -106,7 +111,7 @@ def run_game(game: Path, shots: Path) -> int | None:
     return code
 
 
-def describe(path: Path, thumbnail: bool) -> None:
+def describe(path: Path, thumbnail: bool, tag: str = "") -> None:
     """Print a picture as text: its size, colour count, a grid of average colours, a thumbnail."""
     img = Image.open(path).convert("RGB")
     colours = img.getcolors(img.width * img.height) or []
@@ -122,7 +127,7 @@ def describe(path: Path, thumbnail: bool) -> None:
     text = base64.b64encode(buf.getvalue()).decode()
     n = -(-len(text) // CHUNK)
     for i in range(n):
-        say(f"  THUMB {path.stem} {i + 1}/{n} {text[i * CHUNK:(i + 1) * CHUNK]}")
+        say(f"  THUMB {tag}{'_' if tag else ''}{path.stem} {i + 1}/{n} {text[i * CHUNK:(i + 1) * CHUNK]}")
 
 
 def main(argv=None) -> int:
@@ -144,29 +149,37 @@ def main(argv=None) -> int:
             shutil.copy2(dll, game)
         os.environ.setdefault("GALLIUM_DRIVER", "llvmpipe")
 
-    code = run_game(game, shots)
-    progress = shots / "progress.txt"
-    if progress.exists():
-        say("Game notes:\n" + progress.read_text().rstrip())
-    crash = game / "bitminer_error.log"
-    if crash.exists():
-        say("Crash log:\n" + crash.read_text().rstrip())
-    pictures = sorted(shots.glob("shot_*.png"))
-    for path in pictures:
-        describe(path, thumbnail=path == pictures[-1])
-    for path in shots.glob("desktop.png"):
-        describe(path, thumbnail=True)
+    failed = []
+    total = 0
+    for name, script in RUNS.items():
+        say(f"--- {name} ---")
+        out = shots / name
+        out.mkdir()
+        code = run_game(game, out, script)
+        progress = out / "progress.txt"
+        if progress.exists():
+            say("Game notes:\n" + progress.read_text().rstrip())
+        crash = game / "bitminer_error.log"
+        if crash.exists():
+            say("Crash log:\n" + crash.read_text().rstrip())
+            crash.unlink()
+        pictures = sorted(out.glob("shot_*.png"))
+        for path in pictures:
+            describe(path, thumbnail=path == pictures[-1], tag=name)
+        for path in out.glob("desktop.png"):
+            describe(path, thumbnail=True, tag=name)
+        total += len(pictures)
+        if code is None:
+            failed.append(f"{name}: the game timed out")
+        elif code != 0:
+            failed.append(f"{name}: the game exited with code {code}")
+        elif not pictures:
+            failed.append(f"{name}: no screenshots")
 
-    if code is None:
-        say("Render check failed: the game timed out")
+    if failed:
+        say("Render check failed: " + "; ".join(failed))
         return 1
-    if code != 0:
-        say(f"Render check failed: the game exited with code {code}")
-        return 1
-    if not pictures:
-        say("Render check failed: no screenshots")
-        return 1
-    say(f"Render check passed: {len(pictures)} screenshots")
+    say(f"Render check passed: {total} screenshots")
     return 0
 
 

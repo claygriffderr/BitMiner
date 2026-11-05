@@ -1,6 +1,6 @@
 """Build the Windows (or local) app folder and zip it: `python packaging/build.py`.
 
-Makes dist/BitMiner/ (BitMiner.exe plus its libraries) and dist/BitMiner-FlightTest-<platform>.zip.
+Makes dist/BitMiner/ (BitMiner.exe plus its libraries) and dist/BitMiner-WeaponGallery-<platform>.zip.
 Needs PyInstaller: `pip install pyinstaller`.
 """
 
@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 NAME = "BitMiner"
-ZIP_NAME = "BitMiner-FlightTest-{platform}.zip"
+ZIP_NAME = "BitMiner-WeaponGallery-{platform}.zip"
 
 
 def make_icon(path: Path) -> None:
@@ -47,6 +47,7 @@ def main() -> int:
         "--name", NAME, "--icon", str(icon),
         "--distpath", str(dist), "--workpath", str(build / "pyinstaller"), "--specpath", str(build),
         "--exclude-module", "tkinter", "--exclude-module", "pytest",
+        "--add-data", f"{ROOT / 'bitminer' / 'data'}:bitminer/data",   # tuning and weapon numbers
         str(ROOT / "BitMiner.py"),
     ]
     print(" ".join(cmd))
