@@ -19,10 +19,40 @@ Early development, built in short sprints with a playable or reviewable demo at 
 6. Adaptive AI
 7. Polish and share
 
+## Play the flight test
+
+Windows: download `BitMiner-FlightTest-windows.zip` from the
+[flight-test release](https://github.com/claygriffderr/BitMiner/releases/tag/flight-test), unzip it
+and run `BitMiner.exe`. Each push to a sprint branch rebuilds it.
+
+From source (Python 3.13):
+
+```
+pip install -r requirements.txt
+python -m bitminer
+```
+
+W main booster, S retro, A and D strafe, mouse to aim. Tab shows the tuning panel, C toggles the
+CRT filter, R puts the ship back at the start, F11 is full screen. Slider changes save to
+`flight_tuning.json`.
+
 ## Tech
 
 Python with the [Arcade](https://api.arcade.academy/) library, rendered at 640×360 and scaled up
 with pixel-perfect integer scaling.
+
+- `bitminer/flight.py`: the ship's flight model (mass, boosters, turning, damper, soft speed cap)
+- `bitminer/field.py`: the wrap-around asteroid field and its collisions
+- `bitminer/graphics/`: the renderer (outline after rotation, bloom, parallax backdrop, CRT filter)
+- `bitminer/ui/`: the tuning panel and HUD, in the pixel font
+- `bitminer/settings.py`: every tunable number and where it is saved
+
+```
+pip install -r requirements-dev.txt
+python -m pytest                         # unit tests (BITMINER_GL_TESTS=1 also drives the window)
+python -m bitminer --selftest            # quick check with no window
+python packaging/build.py                # BitMiner.exe and its zip, in dist/
+```
 
 ## Art
 
