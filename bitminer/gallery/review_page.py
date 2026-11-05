@@ -25,10 +25,10 @@ CSS = ART_CSS + """
 .weapon-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
 .weapon-head h3 { font-family: var(--font-display); font-size: 18px; font-weight: 400; letter-spacing: 0.03em; }
 .stats { font: 12px var(--font-mono); color: var(--ink-dim); }
-.gifs { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.gifs { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); }
 .gifs .big { grid-column: 1 / -1; }
-@media (min-width: 900px) { .gifs .big { grid-column: span 2; } }
 .gifs .stage { padding: 0; }
+.gifs .stage a { display: block; }
 .gifs img { width: 100%; height: auto; image-rendering: pixelated; }
 .cap .tag { font: 11px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ion); }
 .cap .tag.hurt { color: var(--danger); }
@@ -48,6 +48,13 @@ DEFENSE_TEXT = {
     "shield": ("Shield up", "Every hit lands on the bubble: a cyan arc where it struck, and the shield bar drops."),
     "shield_breaks": ("Shield breaks", "The shield starts nearly empty, so it shatters partway through and the rest of the hits land on the armor."),
     "armor": ("Armor", "No shield, so every hit lands on the armor: grey sparks, a white flash on the ship, and the hull bar drops."),
+}
+
+WEAPON_STATS = {
+    "auto": {"fire_rate": "shots/s", "damage": "dmg", "speed": "px/s"},
+    "sniper": {"damage": "dmg", "pierce": "hulls", "fire_rate": "shots/s"},
+    "missile": {"damage": "dmg", "blast_radius": "px blast", "max_speed": "px/s"},
+    "laser": {"dps": "dmg/s", "duration": "s beam", "length": "px long"},
 }
 
 ATTACK_STATS = {
@@ -89,7 +96,7 @@ def tile(meta: dict, title: str, tag: str, text: str, hurt: bool = False) -> str
     big = " big" if w > 800 else ""
     return f"""
 <figure class="panel tile{big}" id="{esc(meta['key'])}">
-  <div class="stage"><img src="gif/{esc(meta['file'])}" width="{w}" height="{h}" loading="lazy" alt="{esc(meta['title'].title())}"></div>
+  <div class="stage"><a href="gif/{esc(meta['file'])}" target="_blank" rel="noopener" title="Open full size"><img src="gif/{esc(meta['file'])}" width="{w}" height="{h}" loading="lazy" alt="{esc(meta['title'].title())}"></a></div>
   <figcaption class="cap"><span class="tag{' hurt' if hurt else ''}">{esc(tag)}</span><h3>{esc(title)}</h3><p class="muted">{esc(text)}</p></figcaption>
 </figure>"""
 
@@ -101,12 +108,7 @@ def build(dest: Path) -> Path:
     for w in WEAPONS:
         spec = WEAPONS[w]
         about = sentence(SC._fmt(SC.WEAPON_ABOUT[w], spec))
-        stats = {
-            "auto": _stats(spec, fire_rate="shots/s", damage="dmg", speed="px/s"),
-            "sniper": _stats(spec, damage="dmg", pierce="hulls", fire_rate="shots/s"),
-            "missile": _stats(spec, damage="dmg", blast_radius="px blast", max_speed="px/s"),
-            "laser": _stats(spec, dps="dmg/s", duration="s beam", length="px long"),
-        }[w]
+        stats = _stats(spec, **WEAPON_STATS[w])
         tiles = []
         for target in ENEMIES:
             m = made.get(f"{w}-{target}")
@@ -155,7 +157,7 @@ def build(dest: Path) -> Path:
 <header>
   <span class="eyebrow">Sprint 3 · Weapon effects gallery</span>
   <h1>BitMiner weapon gallery</h1>
-  <p class="lead">Every weapon against every enemy, and every enemy attack against your shield and armor, recorded straight from the game. Each clip is one loop of the gallery's auto pilot, so it starts with the enemies warping in and ends when they are destroyed. Leave a comment on any clip you want changed.</p>
+  <p class="lead">Every weapon against every enemy, and every enemy attack against your shield and armor, recorded straight from the game. Each clip is one loop of the gallery's auto pilot, so it starts with the enemies warping in and ends when they are destroyed. Click a clip to see it full size, and leave a comment on any clip you want changed.</p>
   <a class="download" href="{DOWNLOAD}">Download for Windows</a>
   <nav class="jump" aria-label="Sections">
     <a href="#weapons">Your weapons</a>{jump}<a href="#try">Try it yourself</a><a href="#numbers">Numbers</a><a href="#next">What's next</a>
