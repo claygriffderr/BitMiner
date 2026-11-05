@@ -112,6 +112,7 @@ class FlightTest(arcade.Window):
         self.down: set[int] = set()       # movement keys held right now
         self.mouse = (VIEW[0] / 2 + 60, VIEW[1] / 2 + 80)   # game pixels
         self.mouse_inside = False
+        self.mouse_seen = False   # until the mouse moves, keep the ship's heading
         self.flash = 0.0
         self.flame_clock = 0.0
         self.puff = {}
@@ -156,7 +157,7 @@ class FlightTest(arcade.Window):
 
     def on_mouse_motion(self, x, y, dx, dy):
         self.mouse = self._game_mouse(x, y)
-        self.mouse_inside = True
+        self.mouse_inside = self.mouse_seen = True
         if self.panel.open:
             if self.panel.on_motion(*self.mouse) == "tuning":
                 self.schedule_save()
@@ -230,7 +231,7 @@ class FlightTest(arcade.Window):
                     return Controls(**keys, aim=aim)
         over_ui = self.panel.contains(*self.mouse) or self.panel.dragging is not None
         aim = None
-        if not over_ui:
+        if self.mouse_seen and not over_ui:
             sx, sy = self.ship_on_screen()
             dx, dy = self.mouse[0] - sx, self.mouse[1] - sy
             if dx * dx + dy * dy > 4:
