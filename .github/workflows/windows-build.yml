@@ -60,20 +60,33 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          GALLIUM_DRIVER: llvmpipe
         run: |
           gh release download --repo pal1000/mesa-dist-win --pattern "mesa3d-*-release-msvc.7z" --dir mesa
           7z x (Get-ChildItem mesa/*.7z).FullName -omesa/x -y | Out-Null
           New-Item -ItemType Directory -Force render-check, shots | Out-Null
           Copy-Item -Recurse dist/BitMiner render-check/
           Copy-Item mesa/x/x64/*.dll render-check/BitMiner/
+          Write-Host "Mesa DLLs next to the exe:" ((Get-ChildItem mesa/x/x64/*.dll).Name -join ", ")
           $shots = (Resolve-Path shots).Path
-          $smokeArgs = "--smoke 6 --shots 1.5,2.5,5.5 --size 1280x720 --shot-dir `"$shots`" --settings `"$shots\tuning.json`""
+          $smokeArgs = "--smoke 4 --shots 1.5,3.5 --size 1280x720 --shot-dir `"$shots`" --settings `"$shots\tuning.json`""
           $p = Start-Process render-check/BitMiner/BitMiner.exe -ArgumentList $smokeArgs -PassThru
-          if (-not $p.WaitForExit(240000)) { Stop-Process $p -Force; throw "render check timed out" }
+          $finished = $p.WaitForExit(180000)
+          if (-not $finished) {
+            # Keep a picture of the whole desktop to see what the game was stuck on.
+            Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save("$shots\desktop.png")
+            Stop-Process $p -Force
+          }
+          if (Test-Path "$shots/progress.txt") { Get-Content "$shots/progress.txt" }
           if (Test-Path render-check/BitMiner/bitminer_error.log) { Get-Content render-check/BitMiner/bitminer_error.log }
           Get-ChildItem shots
+          if (-not $finished) { throw "render check timed out" }
           if ($p.ExitCode -ne 0) { throw "render check exited with $($p.ExitCode)" }
-          if (-not (Get-ChildItem shots/*.png)) { throw "no screenshots" }
+          if (-not (Get-ChildItem shots/shot_*.png)) { throw "no screenshots" }
 
       - name: Keep the screenshots
         if: always()

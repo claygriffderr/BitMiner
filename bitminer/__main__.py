@@ -28,8 +28,11 @@ def parse(argv=None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def _report_crash() -> None:
-    """A windowed program has no console, so write the error down and say where it is."""
+def _report_crash(dialog: bool = True) -> None:
+    """A windowed program has no console, so write the error down and say where it is.
+
+    Scripted runs (`--smoke`, `--selftest`) skip the dialog so a build machine never waits on a click.
+    """
     text = traceback.format_exc()
     base = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path.cwd()
     log = base / "bitminer_error.log"
@@ -37,8 +40,9 @@ def _report_crash() -> None:
         log.write_text(text)
     except OSError:
         log = None
-    print(text, file=sys.stderr) if sys.stderr else None
-    if sys.platform == "win32":
+    if sys.stderr:
+        print(text, file=sys.stderr)
+    if dialog and sys.platform == "win32":
         import ctypes
         hint = ""
         if any(word in text for word in ("OpenGL", "GL context", "ContextException", "GLException")):
@@ -55,7 +59,7 @@ def main(argv=None) -> int:
         try:
             return selftest()
         except Exception:
-            _report_crash()
+            _report_crash(dialog=False)
             return 1
     try:
         import pyglet
@@ -64,7 +68,7 @@ def main(argv=None) -> int:
         from .app import run
         run(args)
     except Exception:
-        _report_crash()
+        _report_crash(dialog=not args.smoke)
         return 1
     return 0
 

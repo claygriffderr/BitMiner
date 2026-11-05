@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import random
+import time
 from pathlib import Path
 
 import arcade
@@ -265,8 +266,27 @@ class FlightTest(arcade.Window):
         self.hud.set_cursor(*self.mouse, over_ui)
         if self._save_at is not None and self.clock >= self._save_at:
             self.save_now()
-        if self.args.smoke and self.clock >= self.args.smoke and not self._shots:
-            self.close()
+        if self.args.smoke:
+            self._smoke_progress()
+            if self.clock >= self.args.smoke and not self._shots:
+                self.close()
+
+    def _smoke_progress(self) -> None:
+        """Every half second of game time, note how far a scripted run has got and how fast it runs."""
+        frame = round(self.clock * 60)
+        if frame % 30 or not self.args.shot_dir:
+            return
+        now = time.perf_counter()
+        if not hasattr(self, "_smoke_start"):
+            self._smoke_start = now
+            info = self.ctx.info
+            line = f"GL {self.ctx.gl_version} {info.RENDERER} / {info.VENDOR}, framebuffer {self.get_framebuffer_size()}"
+        else:
+            line = f"game time {self.clock:.1f}s after {now - self._smoke_start:.1f}s real"
+        path = Path(self.args.shot_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        with open(path / "progress.txt", "a") as f:
+            f.write(line + "\n")
 
     def hit_effects(self, impacts: list[Impact]) -> None:
         mass = max(0.05, self.settings.tuning.mass)
