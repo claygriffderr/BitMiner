@@ -2,8 +2,8 @@
 
 Each scene plays one loop on the auto pilot at a steady 25 frames a second (two game steps per
 frame, whatever speed the computer manages), cropped to the scene's framing. Attack scenes show
-your shield and hull in the corner, and mothership scenes its health bar, so the GIFs read on
-their own. Also writes `scenes.json` listing every GIF with its title and notes, for the review page.
+your shield and hull in the corner, missile scenes your missile rack, and mothership scenes its
+health bar, so the GIFs read on their own. Also writes `scenes.json` listing every GIF with its title and notes, for the review page.
 """
 
 from __future__ import annotations
@@ -111,6 +111,13 @@ class Recorder:
             cam.position = (home[0] - dx, home[1] - dy)
             cam.use()
             hud.console.draw()
+        if hud.missiles is not None and scene.column == "missile":
+            # The missile rack into the same corner, so the reload shows.
+            dx = (left + cw - 4) - (GH.CONSOLE_X + GH.CONSOLE_W)
+            dy = (bottom + 4) - GH.AMMO_Y
+            cam.position = (home[0] - dx, home[1] - dy)
+            cam.use()
+            hud.ammo.draw()
         if hud.boss_health is not None:
             dx = 0
             dy = (bottom + 4) - GH.BOSS_Y

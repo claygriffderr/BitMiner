@@ -53,7 +53,7 @@ DEFENSE_TEXT = {
 WEAPON_STATS = {
     "auto": {"fire_rate": "shots/s", "damage": "dmg", "speed": "px/s"},
     "sniper": {"damage": "dmg", "pierce": "hulls", "fire_rate": "shots/s"},
-    "missile": {"damage": "dmg", "blast_radius": "px blast", "max_speed": "px/s"},
+    "missile": {"salvo": "missiles a salvo", "gap": "s apart", "reload": "s reload", "damage": "dmg", "blast_radius": "px blast"},
     "laser": {"dps": "dmg/s", "duration": "s beam", "length": "px long"},
 }
 
@@ -158,6 +158,7 @@ def build(dest: Path) -> Path:
   <span class="eyebrow">Sprint 3 · Weapon effects gallery</span>
   <h1>BitMiner weapon gallery</h1>
   <p class="lead">Every weapon against every enemy, and every enemy attack against your shield and armor, recorded straight from the game. Each clip is one loop of the gallery's auto pilot, so it starts with the enemies warping in and ends when they are destroyed. Click a clip to see it full size, and leave a comment on any clip you want changed.</p>
+  <p class="muted">Updated after your notes: the <a href="#w-laser">laser</a> now runs well off the edge of the screen, and <a href="#w-missile">missiles</a> leave one at a time, left then right, for a salvo of {_num(WEAPONS['missile']['salvo'])} while you hold the button, then reload.</p>
   <a class="download" href="{DOWNLOAD}">Download for Windows</a>
   <nav class="jump" aria-label="Sections">
     <a href="#weapons">Your weapons</a>{jump}<a href="#try">Try it yourself</a><a href="#numbers">Numbers</a><a href="#next">What's next</a>
@@ -191,7 +192,7 @@ def build(dest: Path) -> Path:
       <kbd>↑ ↓</kbd><span>Pick the target, or your defense</span>
       <kbd>Space</kbd><span>Replay the scene</span>
       <kbd>F</kbd><span>Switch between the auto pilot and free-fly</span>
-      <kbd>WASD</kbd><span>Fly (free-fly), with the mouse to aim and a click to fire</span>
+      <kbd>WASD</kbd><span>Fly (free-fly), with the mouse to aim and a click to fire. Hold it with missiles for a full salvo.</span>
       <kbd>1 2 3 4</kbd><span>Auto cannon, sniper, missiles, laser (free-fly)</span>
       <kbd>Tab</kbd><span>Flight tuning sliders, starting from the values you sent</span>
       <kbd>Esc</kbd><span>Back to the menu</span>

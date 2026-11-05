@@ -48,7 +48,7 @@ DEFENSES = {"shield": "SHIELD", "shield_breaks": "SHIELD BREAKS", "armor": "ARMO
 WEAPON_ABOUT = {
     "auto": "FAST ROUNDS FROM BOTH PODS. EVERY HIT FLARES AND CHIPS THE HULL.",
     "sniper": "ONE HEAVY ROUND THAT GOES THROUGH UP TO {pierce} HULLS AND KICKS YOU BACK.",
-    "missile": "{salvo} HOMING MISSILES A SALVO. THE BLAST HURTS AND SHOVES EVERYTHING NEAR IT.",
+    "missile": "{salvo} HOMING MISSILES A SALVO, ONE AT A TIME FROM LEFT AND RIGHT, THEN A RELOAD. THE BLAST HURTS AND SHOVES EVERYTHING NEAR IT.",
     "laser": "A SHORT WARM-UP, THEN A BEAM THAT BURNS EVERY HULL IT TOUCHES AS YOU SWEEP.",
 }
 DEATH_ABOUT = {
@@ -124,6 +124,17 @@ def _nearest(d: Director, foes):
     return min(_alive(foes), key=lambda e: dist(e.x, e.y, ship.x, ship.y))
 
 
+def _missile_target(d: Director, foes):
+    """The nearest target with more health than the missiles already flying at it will take."""
+    dmg = WEAPONS["missile"]["damage"]
+    flying = [m.target for m in d.stage.missiles if m.owner == "player"]
+    need = [e for e in _alive(foes) if e.health > dmg * sum(1 for t in flying if t is e)]
+    if not need:
+        return None
+    ship = d.stage.ship
+    return min(need, key=lambda e: dist(e.x, e.y, ship.x, ship.y))
+
+
 def weapon_script(weapon: str, target: str) -> Callable[[Director], Script]:
     w = WEAPONS[weapon]
 
@@ -145,10 +156,16 @@ def weapon_script(weapon: str, target: str) -> Callable[[Director], Script]:
                 d.fire("sniper")
                 yield 1 / w["fire_rate"]
             elif weapon == "missile":
+                # One missile at a time, each at a target that the missiles already in the air won't finish.
+                e = _missile_target(d, foes)
+                if e is None:
+                    yield 1 / 20
+                    continue
                 d.aim = e
                 yield from wait_until(lambda: d.aim_error() < 8, 0.6)
+                yield from wait_until(lambda: d.stage.missile_ready, w["reload"] + 1)
                 d.fire("missile", e)
-                yield 1 / w["fire_rate"]
+                yield 1 / 60
             else:
                 yield from _laser_sweep(d, foes)
         d.aim = None

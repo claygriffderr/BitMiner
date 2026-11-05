@@ -1,5 +1,5 @@
-"""The weapon gallery's HUD: the scene list, the scene's name and notes, your shield and hull, the
-mothership's health bar, and the controls line. Layout is in game pixels with y up.
+"""The weapon gallery's HUD: the scene list, the scene's name and notes, your shield and hull, your
+missile rack, the mothership's health bar, and the controls line. Layout is in game pixels with y up.
 """
 
 from __future__ import annotations
@@ -25,6 +25,8 @@ LIST_H = 34 + ROW_H * MAX_ROWS + 30
 
 CONSOLE_W, CONSOLE_H = 112, 33
 CONSOLE_X, CONSOLE_Y = VIEW_W - 6 - CONSOLE_W, 16
+AMMO_H = 15
+AMMO_Y = CONSOLE_Y + CONSOLE_H + 3   # the missile rack sits just above the shield console
 BOSS_W = 236
 BOSS_Y = 52
 ABOUT_W = CONSOLE_X - 16          # notes wrap before they reach the shield console
@@ -66,7 +68,9 @@ class GalleryHud:
         self.textures = textures
         self.main = Group(textures)
         self.console = Group(textures)
+        self.ammo = Group(textures)
         self.boss = Group(textures)
+        self.missiles = None
         self.cursor = arcade.SpriteList()
         self._boss_tex: dict = {}
         self.boss_health = None
@@ -121,6 +125,28 @@ class GalleryHud:
             c.sprites.append(shine)
             value = c.text.label("100", CONSOLE_X + CONSOLE_W - 6, y, "hud_text", "right")
             self.bars[key] = (left, w, y, fill, shine, value)
+
+        # ---- the missile rack, above the console: a pip per missile, then a bar while it reloads
+        a = self.ammo
+        plate = arcade.Sprite(tex(hud.panel(CONSOLE_W, AMMO_H), "missile_rack"))
+        plate.center_x, plate.center_y = CONSOLE_X + CONSOLE_W / 2, AMMO_Y + AMMO_H / 2
+        a.sprites.append(plate)
+        y = AMMO_Y + 4
+        a.text.label("MSL", CONSOLE_X + 6, y, "hud_dim")
+        salvo = int(WEAPONS["missile"]["salvo"])
+        left, w = CONSOLE_X + 30, 56
+        step = (w + 2) // salvo
+        self.pips = []
+        for i in range(salvo):
+            x = left + i * step
+            a.sprites.append(solid(x, y + 1, step - 2, 5, "console_black"))
+            self.pips.append(solid(x + 1, y + 2, step - 4, 3, "ion"))
+            a.sprites.append(self.pips[-1])
+        self.rack_span = (left, step * salvo - 2, y)
+        self.reload_bar = solid(left, y + 1, 1, 5, "ion_dark")
+        self.reload_bar.visible = False
+        a.sprites.append(self.reload_bar)
+        self.ammo_value = a.text.label(str(salvo), CONSOLE_X + CONSOLE_W - 6, y, "hud_text", "right")
 
         # ---- the mothership's health, bottom centre
         self.boss_sprite = arcade.Sprite(self._boss_texture(1.0, 0.0))
@@ -191,7 +217,18 @@ class GalleryHud:
             x += text_width(what) + 1
 
     def update(self, dt: float, shield: float, shield_max: float, hull: float, hull_max: float,
-               boss: float | None) -> None:
+               boss: float | None, missiles: tuple[int, float] | None = None) -> None:
+        """`missiles` is (missiles loaded, reload done from 0 to 1, or 1 when not reloading), or None
+        to hide the missile rack."""
+        self.missiles = missiles
+        if missiles is not None:
+            loaded, reload = missiles
+            left, span, y = self.rack_span
+            reloading = loaded == 0
+            for i, pip in enumerate(self.pips):
+                pip.visible = i < loaded
+            set_rect(self.reload_bar, left, y + 1, round(span * reload) if reloading else 0, 5)
+            self.ammo_value.set("RLD" if reloading else str(loaded), color="hud_dim" if reloading else "hud_text")
         for key, value, top in (("shield", shield, shield_max), ("hull", hull, hull_max)):
             left, w, y, fill, shine, label = self.bars[key]
             frac = max(0.0, min(1.0, value / max(1.0, top)))
@@ -242,6 +279,8 @@ class GalleryHud:
     def draw(self) -> None:
         self.main.draw()
         self.console.draw()
+        if self.missiles is not None:
+            self.ammo.draw()
         if self.boss_health is not None:
             self.boss.draw()
 

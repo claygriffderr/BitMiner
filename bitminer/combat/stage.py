@@ -279,6 +279,7 @@ class Stage:
         self.last_hit = None         # (amount, "shield" or "armor") for the HUD
         self._uid = 0
         self._gun = 0
+        self.reload_missiles()
 
     # ------------------------------------------------------------ setup
 
@@ -289,6 +290,19 @@ class Stage:
         self.screen_flash = 0.0
         self.ship_flash = 0.0
         self.shield_show = 0.0
+        self.reload_missiles()
+
+    def reload_missiles(self) -> None:
+        """A full missile rack, ready to fire."""
+        self.missiles_loaded = int(WEAPONS["missile"]["salvo"])
+        self.missile_wait = 0.0        # until the next missile can launch
+        self.missile_reload = 0.0      # reload time left; above 0 while the rack refills
+        self.missile_idle = 0.0        # time since the last launch
+        self._pod = 0
+
+    @property
+    def missile_ready(self) -> bool:
+        return self.missiles_loaded > 0 and self.missile_wait <= 0 and self.missile_reload <= 0
 
     def uid(self) -> int:
         self._uid += 1
@@ -346,20 +360,51 @@ class Stage:
         self.sparks.burst("ion_spark", x, y, math.atan2(fy, fx), 0.5, 6, (20, 70), (0.08, 0.2))
         self.kick += 0.12
 
-    def fire_missiles(self, target: Enemy | None) -> None:
+    def fire_missile(self, target: Enemy | None) -> bool:
+        """Launch one missile, from the left and right pods in turn. Missiles leave `gap` seconds
+        apart; when the salvo is spent the rack reloads. Returns False if none was ready."""
+        if not self.missile_ready:
+            return False
         w = WEAPONS["missile"]
         ship = self.ship
-        for i, (right, fwd) in enumerate(PODS[: int(w["salvo"])]):
-            x, y = to_world(ship.x, ship.y, ship.angle, right, fwd)
-            # Out sideways off the rail first, then the motor lights and it turns in.
-            h = ship.angle + (-55 if right < 0 else 55)
-            self.missiles.append(Missile(
-                "player", x, y, h, w["launch_speed"], w["max_speed"], w["accel"], w["turn_rate"],
-                w["damage"], w["range"] / w["max_speed"] * 1.6, target=target,
-                blast_radius=w["blast_radius"], blast_push=w["blast_push"], uid=self.uid(),
-                clock=i * 0.07))
-            self.anims.append(Anim("muzzle", ("missile",), 2, 20, x, y, ship.angle))
-            self.smoke.burst("smoke", x, y, math.radians(90 - h), 0.8, 5, (6, 24), (0.3, 0.7))
+        right, fwd = PODS[self._pod % 2]
+        self._pod += 1
+        x, y = to_world(ship.x, ship.y, ship.angle, right, fwd)
+        # Out sideways off the rail first, then the motor lights and it turns in.
+        h = ship.angle + (-55 if right < 0 else 55)
+        self.missiles.append(Missile(
+            "player", x, y, h, w["launch_speed"], w["max_speed"], w["accel"], w["turn_rate"],
+            w["damage"], w["range"] / w["max_speed"] * 1.6, target=target,
+            blast_radius=w["blast_radius"], blast_push=w["blast_push"], uid=self.uid()))
+        self.anims.append(Anim("muzzle", ("missile",), 2, 20, x, y, ship.angle,
+                               follow=self._ship_follow(right, fwd)))
+        self.smoke.burst("smoke", x, y, math.radians(90 - h), 0.9, 9, (8, 32), (0.35, 0.8))
+        self.sparks.burst("ion_spark", x, y, math.radians(90 - h), 0.7, 4, (20, 60), (0.08, 0.18))
+        # A thump: the launch rocks the ship away from the pod and back a little.
+        rx, ry = right_vector(ship.angle)
+        fx, fy = forward_vector(ship.angle)
+        side = 1.0 if right < 0 else -1.0
+        ship.vx += rx * side * 10 - fx * 8
+        ship.vy += ry * side * 10 - fy * 8
+        self.kick += 0.1
+        self.missiles_loaded -= 1
+        self.missile_wait = float(w["gap"])
+        self.missile_idle = 0.0
+        if self.missiles_loaded <= 0:
+            self.missile_reload = float(w["reload"])
+        return True
+
+    def _step_rack(self, dt: float) -> None:
+        w = WEAPONS["missile"]
+        self.missile_wait = max(0.0, self.missile_wait - dt)
+        self.missile_idle += dt
+        if self.missile_reload > 0:
+            self.missile_reload -= dt
+            if self.missile_reload <= 0:
+                self.reload_missiles()
+        elif self.missiles_loaded < int(w["salvo"]) and self.missile_idle >= w["reload"]:
+            # A part-used rack tops up once you have held fire for a reload's time.
+            self.reload_missiles()
 
     def start_laser(self) -> Beam:
         w = WEAPONS["laser"]
@@ -594,6 +639,7 @@ class Stage:
         self.shield_show = max(0.0, self.shield_show - dt)
         self.screen_flash = max(0.0, self.screen_flash - dt * 2.5)
 
+        self._step_rack(dt)
         self._step_shots(dt)
         self._step_missiles(dt)
         self._step_beams(dt)

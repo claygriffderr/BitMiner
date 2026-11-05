@@ -6,7 +6,7 @@ If Windows shows *"Windows protected your PC"*, click **More info**, then **Run 
 
 **Menu:** pick Flight Test or Weapon Gallery with the mouse or the arrow keys and Enter. Esc goes back to the menu from either one.
 
-**Weapon gallery:** Left and Right pick a weapon or an enemy attack, Up and Down pick the target or your defense (shield, shield breaking, or straight onto the armor). You can also click the list on the right. Space replays the scene. F switches between the auto pilot and free-fly, where you fly with WASD, aim with the mouse, click to fire and press 1 to 4 to change weapon.
+**Weapon gallery:** Left and Right pick a weapon or an enemy attack, Up and Down pick the target or your defense (shield, shield breaking, or straight onto the armor). You can also click the list on the right. Space replays the scene. F switches between the auto pilot and free-fly, where you fly with WASD, aim with the mouse, click to fire and press 1 to 4 to change weapon. Hold the click with missiles to fire a full salvo of 6, one at a time; the rack then reloads (the MSL readout bottom right shows it).
 
 **Flight test:** W main booster, S retro, A and D strafe, mouse to aim. R puts the ship back at the start.
 

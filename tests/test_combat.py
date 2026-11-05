@@ -59,12 +59,52 @@ def test_sniper_round_goes_through_three_hulls_but_not_four():
 def test_missile_hits_its_target_harder_than_a_bystander():
     st = stage()
     target = st.spawn("guard", C[0], C[1] + 120, warp=False, health=1000)
-    near = st.spawn("guard", C[0] + 26, C[1] + 126, warp=False, health=1000)
-    st.fire_missiles(target)
+    near = st.spawn("guard", C[0] - 24, C[1] + 118, warp=False, health=1000)   # on the left pod's side
+    assert st.fire_missile(target)
     run(st, 3.0)
     lost_target, lost_near = 1000 - target.health, 1000 - near.health
     assert lost_target >= WEAPONS["missile"]["damage"]
     assert 0 < lost_near < lost_target
+
+
+def test_missiles_leave_one_at_a_time_then_the_rack_reloads():
+    st = stage()
+    w = WEAPONS["missile"]
+    salvo = int(w["salvo"])
+    target = st.spawn("tank", C[0], C[1] + 300, warp=False, health=1e6)
+    launches = []                                  # (time, which side of the ship)
+    t = 0.0
+    while t < salvo * w["gap"] + 1.0:              # holding the trigger
+        if st.fire_missile(target):
+            m = st.missiles[-1]
+            side = (m.x - st.ship.x) * math.cos(math.radians(st.ship.angle))
+            launches.append((t, "left" if side < 0 else "right"))
+        st.step(1 / 60)
+        t += 1 / 60
+    assert len(launches) == salvo                  # the rack is spent, so the trigger does nothing
+    gaps = [b[0] - a[0] for a, b in zip(launches, launches[1:])]
+    assert min(gaps) >= w["gap"] - 1e-6
+    assert [s for _, s in launches] == ["left", "right"] * (salvo // 2)
+    assert st.missiles_loaded == 0 and st.missile_reload > 0
+    run(st, w["reload"])
+    assert st.missiles_loaded == salvo and st.missile_ready
+
+
+def test_part_used_rack_tops_up_after_holding_fire():
+    st = stage()
+    w = WEAPONS["missile"]
+    st.fire_missile(None)
+    run(st, w["reload"] * 0.5)
+    assert st.missiles_loaded == int(w["salvo"]) - 1
+    run(st, w["reload"] * 0.5 + 0.05)
+    assert st.missiles_loaded == int(w["salvo"])
+
+
+def test_laser_reaches_off_screen_from_anywhere_the_camera_puts_you():
+    from bitminer.camera import MAX_LEAD
+    from bitminer.graphics.renderer import VIEW
+    corner = math.hypot(VIEW[0] / 2 + MAX_LEAD[0], VIEW[1] / 2 + MAX_LEAD[1])
+    assert WEAPONS["laser"]["length"] > corner
 
 
 def test_laser_burns_everything_in_its_path():
@@ -158,6 +198,20 @@ def test_free_fly_stays_in_the_arena_and_fires():
         d.step(1 / 60, Controls(forward=True, aim=90.0), trigger=True)
     assert abs(st.ship.x - C[0]) <= ARENA[0] + 1e-6
     assert any(s.owner == "player" for s in st.shots)
+
+
+def test_holding_fire_in_free_fly_empties_the_missile_rack_then_reloads():
+    st = stage()
+    d = Director(st, Tuning(), C)
+    d.auto = False
+    d.weapon = "missile"
+    d.start(SC.find("missile", "tank"))
+    w = WEAPONS["missile"]
+    launched = set()
+    for _ in range(round((w["salvo"] * w["gap"] + 0.5) * 60)):
+        d.step(1 / 60, Controls(), trigger=True, cursor=(C[0], C[1] + 120))
+        launched |= {m.uid for m in st.missiles if m.owner == "player"}
+    assert len(launched) == w["salvo"] and st.missile_reload > 0
 
 
 def test_scene_list_is_complete():

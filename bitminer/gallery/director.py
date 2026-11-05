@@ -155,7 +155,7 @@ class Director:
         elif weapon == "sniper":
             st.fire_sniper()
         elif weapon == "missile":
-            st.fire_missiles(target)
+            st.fire_missile(target)
         elif weapon == "laser":
             self.beam = st.start_laser()
 
@@ -242,7 +242,17 @@ class Director:
             ship.uy += edge - ship.y
             ship.y = edge
             ship.vy = -ship.vy * 0.4
-        if not trigger or self.cooldown > 0:
+        if not trigger:
+            return
+        if self.weapon == "missile":
+            # Holding the trigger empties the rack one missile at a time, at the nearest target to the cursor.
+            if st.missile_ready:
+                live = st.live_enemies
+                cx_, cy_ = cursor or (ship.x, ship.y)
+                target = min(live, key=lambda e: dist(e.x, e.y, cx_, cy_)) if live else None
+                st.fire_missile(target)
+            return
+        if self.cooldown > 0:
             return
         w = WEAPONS[self.weapon]
         if self.weapon == "laser":
@@ -251,13 +261,7 @@ class Director:
             self._fire("laser")
             self.cooldown = w["warmup"] + w["duration"] + 0.35
             return
-        target = None
-        if self.weapon == "missile":
-            live = st.live_enemies
-            if live:
-                cx_, cy_ = cursor or (ship.x, ship.y)
-                target = min(live, key=lambda e: dist(e.x, e.y, cx_, cy_))
-        self._fire(self.weapon, target)
+        self._fire(self.weapon)
         self.cooldown = 1.0 / w["fire_rate"]
 
 

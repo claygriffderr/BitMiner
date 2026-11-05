@@ -11,6 +11,7 @@ import random
 import arcade
 
 from ..camera import FollowCamera
+from ..combat.specs import WEAPONS
 from ..combat.stage import Stage
 from ..flight import Controls, angle_to
 from ..gallery import scenes as SC
@@ -227,8 +228,13 @@ class GalleryView(arcade.View):
         self.camera.update(st.ship, w.settings.tuning, dt)
         self.flame_clock += dt
         boss = next((e for e in st.enemies if e.kind == "mothership" and e.alive), None)
+        missile = d.scene.column == "missile" if d.auto else d.weapon == "missile"
+        rack = None
+        if missile:
+            reload = float(WEAPONS["missile"]["reload"])
+            rack = (st.missiles_loaded, 1.0 - st.missile_reload / reload if st.missile_reload > 0 else 1.0)
         self.hud.update(dt, st.shield, st.shield_max, st.hull, st.hull_max,
-                        None if boss is None else boss.health / boss.max_health)
+                        None if boss is None else boss.health / boss.max_health, rack)
         over_ui = w.panel.contains(*w.mouse) or self.hud.contains(*w.mouse)
         self.hud.set_cursor(*w.mouse, over_ui, w.mouse_inside or bool(w.args.smoke))
 
