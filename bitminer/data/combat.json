@@ -1,0 +1,50 @@
+{
+  "about": "How enemies fight and how the combat sandbox runs. Distances are game pixels, times are seconds, angles are degrees. Enemy speeds, health and weapons are in weapons.json. Nothing here is fixed in code.",
+  "ai": {
+    "about": "infantry: squads hold `standoff` from you in a formation `spacing` apart and at least `squad_gap` from the next squad, re-plan every `replan` seconds, drift around you at `orbit` degrees a second (reversing with chance `orbit_flip` at each re-plan), and fire when you are within `fire_range` and no rock is in the way. `aim_lead` is how much of your movement they lead (0 aims where you are, 1 leads fully) and `spread` the scatter of their aim. guard: forms a wall `wall_gap` in front of the allies it protects, `spacing` apart; it rams when it drops below `low` of its health, or for `alert` seconds after an ally within `ally_radius` drops below `ally_low` or dies, as long as you are within `ram_range` with no rock in the way, then waits `ram_cooldown`. A guard with no squad to guard closes in and rams once you are within `alone_ram`. rapid: waits `hold_range` behind you (up to `hold_spread` degrees either side) for `rest` seconds, dives past you `pass_offset` to one side, fires a burst inside `fire_range` (leading you by `aim_lead`, scattered by `spread`), and carries on `overshoot` past you, giving up after `pass_time` seconds. avoid: everyone looks `look` ahead for rocks and swings wide by `margin`.",
+    "infantry": {"standoff": 140, "spacing": 22, "replan": 0.9, "orbit": 14, "orbit_flip": 0.08,
+                 "fire_range": 240, "aim_lead": 0.6, "spread": 4.0, "squad_gap": 40},
+    "guard": {"wall_gap": 46, "spacing": 24, "replan": 0.6, "ram_range": 230, "ram_cooldown": 4.0,
+              "low": 0.5, "ally_low": 0.4, "ally_radius": 150, "alert": 2.5, "alone_ram": 140},
+    "rapid": {"hold_range": 300, "hold_spread": 60, "replan": 0.5, "rest": [1.0, 2.4], "pass_offset": 26,
+              "fire_range": 180, "aim_lead": 0.5, "spread": 3.0, "overshoot": 170, "pass_time": 3.0},
+    "avoid": {"look": 46, "margin": 6}
+  },
+  "waves": {
+    "about": "The first wave arrives `first` seconds in, then one every `every` seconds whether or not you have cleared the last (a wave can set its own `next`). Each wave warps in `spawn_distance` from you, just off screen, its groups `group_spread` degrees apart round you; rapid assault groups come from behind you, up to `raid_spread` degrees either side. After the last listed wave the list repeats with `grow` more ships in every group each time round. A wave waits while `cap` or more enemies are still flying. formation is line, wedge or arc.",
+    "first": 4,
+    "every": 45,
+    "spawn_distance": 440,
+    "group_spread": 28,
+    "raid_spread": 50,
+    "grow": 1,
+    "cap": 60,
+    "list": [
+      {"name": "SCOUTS", "next": 35, "groups": [{"kind": "infantry", "count": 4, "formation": "line"}]},
+      {"name": "TWO SQUADS", "groups": [{"kind": "infantry", "count": 4, "formation": "wedge"},
+                                        {"kind": "infantry", "count": 4, "formation": "line"}]},
+      {"name": "SHIELD WALL", "groups": [{"kind": "infantry", "count": 5, "formation": "arc"},
+                                         {"kind": "guard", "count": 2}]},
+      {"name": "RAIDERS", "groups": [{"kind": "rapid", "count": 3},
+                                     {"kind": "infantry", "count": 4, "formation": "line"}]},
+      {"name": "THE SWARM", "next": 60, "groups": [{"kind": "infantry", "count": 5, "formation": "wedge"},
+                                                   {"kind": "infantry", "count": 5, "formation": "line"},
+                                                   {"kind": "guard", "count": 3},
+                                                   {"kind": "rapid", "count": 3}]}
+    ]
+  },
+  "sandbox": {
+    "about": "`respawn` seconds after your ship goes down you are back, blinking (unhittable) for `invulnerable` seconds. Edge arrows point at up to `arrows` enemies within `arrow_range` that are off screen.",
+    "respawn": 2.5,
+    "invulnerable": 2.0,
+    "arrow_range": 1100,
+    "arrows": 10,
+    "seed": 7
+  },
+  "playdata": {
+    "about": "Each fight in the sandbox is written to a file in the `playdata` folder next to your settings, for the adaptive enemy AI to learn from later: every kill, hit taken, bump and wave as it happens, and every `sample_every` seconds where you are, how you fly, what you hold and how many shots each side fired. Only the newest `keep` files are kept; `on` false turns it off.",
+    "on": true,
+    "sample_every": 0.5,
+    "keep": 40
+  }
+}

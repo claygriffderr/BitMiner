@@ -55,6 +55,8 @@ class AsteroidField:
         self.size = np.zeros(0, dtype=int)
         self.variant = np.zeros(0, dtype=int)
         self.ore = np.zeros(0, dtype=bool)
+        self._reach_cache = None
+        self._reach_max = 0.0
 
     def __len__(self) -> int:
         return len(self.x)
@@ -142,11 +144,28 @@ class AsteroidField:
 
     def near(self, x: float, y: float, half_w: float, half_h: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Rocks overlapping the box around (x, y), with their offsets from (x, y) the short way round."""
-        dx = wrap_delta(self.x - x, self.width)
-        dy = wrap_delta(self.y - y, self.height)
-        reach = self.size / 2 + 4
+        dx = self._offsets(self.x, x, half_w, self.width)
+        dy = self._offsets(self.y, y, half_h, self.height)
+        reach = self._reach()
         idx = np.nonzero((np.abs(dx) <= half_w + reach) & (np.abs(dy) <= half_h + reach))[0]
         return idx, dx[idx], dy[idx]
+
+    def _reach(self) -> np.ndarray:
+        """How far each rock's picture reaches from its centre (cached: rocks never change size)."""
+        if self._reach_cache is None or len(self._reach_cache) != len(self):
+            self._reach_cache = self.size / 2 + 4
+            self._reach_max = float(self._reach_cache.max()) if len(self) else 0.0
+        return self._reach_cache
+
+    def _offsets(self, xs: np.ndarray, x: float, half: float, size: float) -> np.ndarray:
+        """Offsets from x along one wrapping axis. Wrapping costs time, so it is only done when the
+        box around x comes near the seam; anywhere else the plain difference is the short way."""
+        self._reach()
+        x0 = x % size
+        d = xs - x0
+        if x0 - half - self._reach_max < 0 or x0 + half + self._reach_max > size:
+            d = wrap_delta(d, size)
+        return d
 
     @property
     def awake(self) -> np.ndarray:
@@ -171,13 +190,18 @@ class AsteroidField:
         self.vy[slow] = 0.0
 
     def _collide_rock(self, i: int, bounce: float = 0.5) -> None:
-        dx = wrap_delta(self.x - self.x[i], self.width)
-        dy = wrap_delta(self.y - self.y[i], self.height)
-        dist = np.hypot(dx, dy)
-        overlap = self.r + self.r[i] - dist
-        overlap[i] = -1
-        for j in np.nonzero(overlap > 0)[0]:
-            d = max(dist[j], 1e-6)
+        reach = self.r[i] + float(self.r.max())
+        dx = self._offsets(self.x, self.x[i], reach, self.width)
+        dy = self._offsets(self.y, self.y[i], reach, self.height)
+        close = np.nonzero((np.abs(dx) < reach) & (np.abs(dy) < reach))[0]
+        for j in close:
+            if j == i:
+                continue
+            d = math.hypot(dx[j], dy[j])
+            over = self.r[j] + self.r[i] - d
+            if over <= 0:
+                continue
+            d = max(d, 1e-6)
             nx, ny = dx[j] / d, dy[j] / d
             inv_i, inv_j = 1 / self.m[i], 1 / self.m[j]
             rel = (self.vx[j] - self.vx[i]) * nx + (self.vy[j] - self.vy[i]) * ny
@@ -187,7 +211,7 @@ class AsteroidField:
                 self.vy[i] -= jimp * inv_i * ny
                 self.vx[j] += jimp * inv_j * nx
                 self.vy[j] += jimp * inv_j * ny
-            push = overlap[j] / (inv_i + inv_j)
+            push = over / (inv_i + inv_j)
             self.x[i] = (self.x[i] - push * inv_i * nx) % self.width
             self.y[i] = (self.y[i] - push * inv_i * ny) % self.height
             self.x[j] = (self.x[j] + push * inv_j * nx) % self.width
@@ -198,8 +222,9 @@ class AsteroidField:
         impacts: list[Impact] = []
         if not len(self):
             return impacts
-        dx = wrap_delta(self.x - ship.x, self.width)
-        dy = wrap_delta(self.y - ship.y, self.height)
+        reach = ship.radius + float(self.r.max())
+        dx = self._offsets(self.x, ship.x, reach, self.width)
+        dy = self._offsets(self.y, ship.y, reach, self.height)
         dist = np.hypot(dx, dy)
         overlap = self.r + ship.radius - dist
         hits = np.nonzero(overlap > 0)[0]

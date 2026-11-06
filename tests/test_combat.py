@@ -127,7 +127,8 @@ def test_shield_takes_hits_then_breaks_then_the_hull_does():
     assert st.shield == 0
     assert any(a.name == "shield_break" for a in st.anims)
     assert st.damage_player(6, C[0], C[1] + 20) == "armor"
-    assert st.hull == st.hull_max - 6
+    assert st.hull == pytest.approx(st.hull_max - 6 * st.armor_factor)   # armor takes its share
+    assert st.armor_factor < 1
 
 
 def test_mothership_beam_stops_at_the_shield():

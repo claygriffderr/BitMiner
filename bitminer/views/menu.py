@@ -16,6 +16,7 @@ from ..world import FlightWorld
 
 ITEMS = [
     ("flight", "FLIGHT TEST", "FLY THE SHIP THROUGH THE ASTEROIDS AND TUNE HOW IT HANDLES."),
+    ("sandbox", "COMBAT SANDBOX", "FIGHT WAVE AFTER WAVE OF ENEMIES IN THE ASTEROID FIELD."),
     ("gallery", "WEAPON GALLERY", "EVERY WEAPON, ENEMY ATTACK AND EXPLOSION, PLAYING ON A LOOP."),
     ("quit", "QUIT", "CLOSE THE GAME."),
 ]
@@ -52,13 +53,13 @@ class MenuView(arcade.View):
         self.text = TextLayer(window.textures)
         self.cursor = arcade.SpriteList()
         self.time = 0.0
-        self.selected = 0
+        self.selected = 1          # the newest screen: the combat sandbox
 
         logo = arcade.Sprite(tex(title_image(), "menu_title"))
         logo.center_x = VIEW[0] / 2
         logo.center_y = 262
         self.sprites.append(logo)
-        self.text.label("SPRINT 3 BUILD: WEAPON GALLERY", VIEW[0] // 2, 222, "hud_dim", "center",
+        self.text.label("SPRINT 4 BUILD: COMBAT SANDBOX", VIEW[0] // 2, 222, "hud_dim", "center",
                         shadow="console_black")
 
         n = len(ITEMS)

@@ -1,11 +1,12 @@
 {
-  "about": "Weapon, enemy and defense numbers for the weapon gallery (and later the combat sprint). Speeds are game pixels per second, times are seconds, damage is health points. Missiles launch one at a time, `gap` seconds apart from the left and right pods in turn; once a salvo is spent the rack takes `reload` seconds to refill. Nothing here is fixed in code.",
+  "about": "Weapon, enemy and defense numbers for the weapon gallery (and later the combat sprint). Speeds are game pixels per second, times are seconds, damage is health points. Missiles launch one at a time, `gap` seconds apart from the left and right pods in turn; once a salvo is spent the rack takes `reload` seconds to refill. The laser holds `charges` shots and gets one back every `recharge` seconds. Your shield starts recharging `shield_delay` seconds after the last hit, at `shield_regen` a second. Each armor level stops `armor_block` of every hull hit. A collision only hurts once it changes your speed (or theirs) by more than `impact.safe_speed`; past that, damage is the extra speed times `player_damage` (or `enemy_damage`). Nothing here is fixed in code.",
   "player_weapons": {
     "auto":    {"label": "AUTO CANNON", "fire_rate": 11, "speed": 520, "damage": 4, "spread": 2.5, "range": 360},
     "sniper":  {"label": "SNIPER", "fire_rate": 0.9, "speed": 1250, "damage": 34, "pierce": 3, "range": 520},
     "missile": {"label": "MISSILES", "salvo": 6, "gap": 0.32, "reload": 2.5, "launch_speed": 90, "accel": 420, "max_speed": 300,
                 "turn_rate": 260, "damage": 30, "blast_radius": 24, "blast_push": 140, "range": 600},
-    "laser":   {"label": "LASER", "warmup": 0.25, "duration": 1.5, "length": 640, "dps": 120}
+    "laser":   {"label": "LASER", "warmup": 0.25, "duration": 1.5, "length": 640, "dps": 120,
+                "charges": 3, "recharge": 45}
   },
   "enemies": {
     "infantry":   {"label": "INFANTRY", "health": 16, "mass": 1.0, "speed": 70},
@@ -20,7 +21,10 @@
     "tank_missile":     {"launch_speed": 40, "max_speed": 105, "accel": 90, "turn_rate": 75, "damage": 16, "health": 4},
     "mothership_laser": {"track_time": 2.2, "turn_rate": 16, "lock_time": 0.9, "fire_time": 0.9, "dps": 45}
   },
-  "player_defense": {"shield": 100, "hull": 100, "shield_radius": 14, "mass": 1.0},
+  "player_defense": {"shield": 100, "hull": 100, "shield_radius": 14, "mass": 1.0,
+                     "shield_delay": 3.0, "shield_regen": 14,
+                     "armor": 2, "armor_max": 5, "armor_block": 0.08,
+                     "impact": {"safe_speed": 120, "player_damage": 0.05, "enemy_damage": 0.12}},
   "gallery": {
     "about": "Targets in the gallery have just enough health to fall to one showing of each weapon, so every loop ends in the explosion. These are seconds of fire (auto cannon, laser) or hits (sniper, missiles); the mothership takes more missiles than one salvo so its clip shows the reload. laser_sweep is how many degrees the gallery pilot swings the laser across, orbit_speed how fast moving targets circle, and shield_breaks_at the shield left at the start of the SHIELD BREAKS scenes.",
     "auto_seconds": {"infantry": 0.5, "guard": 2.0, "rapid": 0.4, "tank": 3.0, "mothership": 5.0},

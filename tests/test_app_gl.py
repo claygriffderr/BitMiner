@@ -161,3 +161,49 @@ def test_free_fly_fires_the_chosen_weapon(make_window):
     send(win, "on_key_press", arcade.key.W, 0)
     frames(win, 30)
     assert view.stage.ship.speed > 20
+
+
+def test_menu_starts_on_the_combat_sandbox(make_window):
+    import arcade
+    win = make_window("menu")
+    frames(win)
+    send(win, "on_key_press", arcade.key.ENTER, 0)
+    assert win.current_view is win.views["sandbox"]
+    frames(win, 10)
+    send(win, "on_key_press", arcade.key.ESCAPE, 0)
+    assert win.current_view is win.views["menu"]
+
+
+def test_sandbox_fights_draws_and_logs(make_window, tmp_path):
+    import arcade
+    win = make_window("sandbox")
+    view = win.views["sandbox"]
+    sb = view.sb
+    send(win, "on_key_press", arcade.key.KEY_3, 0)
+    assert sb.arsenal.weapon == "missile"
+    send(win, "on_mouse_motion", *to_window(win, 320, 300), 0, 0)
+    send(win, "on_mouse_scroll", *to_window(win, 320, 300), 0, -1)
+    assert sb.arsenal.weapon == "laser"
+    send(win, "on_key_press", arcade.key.KEY_1, 0)
+    send(win, "on_key_press", arcade.key.N, 0)
+    frames(win, 30)
+    assert sb.waves.number == 1 and sb.stage.enemies
+    send(win, "on_mouse_press", *to_window(win, 320, 300), arcade.MOUSE_BUTTON_LEFT, 0)
+    frames(win, 30)
+    assert any(s.kind == "auto" for s in sb.stage.shots) or sb.stage.events
+    send(win, "on_mouse_release", *to_window(win, 320, 300), arcade.MOUSE_BUTTON_LEFT, 0)
+    # Off-screen enemies get arrows at the edge.
+    for e in sb.stage.enemies:
+        e.x, e.y = sb.ship.x + 900, sb.ship.y
+    frames(win, 2)
+    assert any(s.visible for s in view.hud.arrows)
+    send(win, "on_key_press", arcade.key.P, 0)
+    t = sb.time
+    frames(win, 5)
+    assert sb.time == t                       # paused
+    send(win, "on_key_press", arcade.key.P, 0)
+    view.shutdown()
+    logs = list((tmp_path / "playdata").glob("fight-*.jsonl"))
+    assert len(logs) == 1
+    lines = [json.loads(line) for line in logs[0].read_text().splitlines()]
+    assert lines[0]["type"] == "start" and lines[-1]["type"] == "end"

@@ -35,6 +35,7 @@ class Tuning:
     mass: float = _start("mass")                  # Heavier: slower to speed up, hits harder, knocked around less.
     bounce: float = _start("bounce")              # How springy hits against asteroids are, 0 to 1.
     camera_lead: float = _start("camera_lead")    # How far the camera looks ahead of the ship, 0 to 1.
+    camera_aim: float = _start("camera_aim")      # In a fight, how far the view leans toward the mouse.
     shake: float = _start("shake")                # Screen shake strength on impacts.
 
     def clamped(self) -> "Tuning":

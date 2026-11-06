@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 from typing import Callable, Iterator
 
+from ..combat.arsenal import Arsenal
 from ..combat.specs import GALLERY, WEAPONS
 from ..combat.stage import Enemy, Stage, dist
 from ..flight import Controls, angle_to, wrap_angle
@@ -36,7 +37,7 @@ class Director:
         self.centre = centre
         self.scene = None
         self.auto = True
-        self.weapon = "auto"          # free-fly weapon
+        self.arsenal = Arsenal(stage, unlimited_laser=True)   # your weapons in free-fly
         self.time = 0.0               # seconds since the scene (re)started
         self.loops = 0
         self.post = centre
@@ -48,7 +49,17 @@ class Director:
         self.rest = 0.0
         self.cooldown = 0.0
         self.beam = None
+        self.edge_hit = 0.0           # flashes the arena edge when free-fly bumps it
         self.finished = 0             # scene runs finished since start, for recording
+
+    @property
+    def weapon(self) -> str:
+        """The free-fly weapon in hand."""
+        return self.arsenal.weapon
+
+    @weapon.setter
+    def weapon(self, w: str) -> None:
+        self.arsenal.select(w)
 
     # ------------------------------------------------------------ scenes
 
@@ -63,6 +74,7 @@ class Director:
         self.aim = None
         self.beam = None
         self.cooldown = 0.0
+        self.arsenal.reset()
         self.post = self.centre
         self.post_fn = None
         st.ship_visible = True
@@ -165,8 +177,10 @@ class Director:
              cursor: tuple[float, float] | None = None) -> None:
         """Advance everything by dt. `controls`, `trigger` and `cursor` (a world point) are free-fly input."""
         st = self.stage
+        st.events.clear()             # the gallery keeps no log, so don't let them pile up
         self.time += dt
         self.cooldown = max(0.0, self.cooldown - dt)
+        self.edge_hit = max(0.0, self.edge_hit - dt * 2.5)
 
         if self.script is not None:
             self.wait -= dt
@@ -182,6 +196,9 @@ class Director:
             self._pilot(dt)
         else:
             self._free_fly(dt, controls or Controls(), trigger, cursor)
+        # In free-fly your hull bumps theirs, like in a real fight.
+        st.collide_bodies = not self.auto
+        st.ship_mass = max(0.05, self.tuning.mass)
         st.step(dt)
 
         if self.script is None:
@@ -237,32 +254,14 @@ class Director:
             ship.ux += edge - ship.x
             ship.x = edge
             ship.vx = -ship.vx * 0.4
+            self.edge_hit = 1.0
         if abs(ship.y - cy) > ARENA[1]:
             edge = cy + math.copysign(ARENA[1], ship.y - cy)
             ship.uy += edge - ship.y
             ship.y = edge
             ship.vy = -ship.vy * 0.4
-        if not trigger:
-            return
-        if self.weapon == "missile":
-            # Holding the trigger empties the rack one missile at a time, at the nearest target to the cursor.
-            if st.missile_ready:
-                live = st.live_enemies
-                cx_, cy_ = cursor or (ship.x, ship.y)
-                target = min(live, key=lambda e: dist(e.x, e.y, cx_, cy_)) if live else None
-                st.fire_missile(target)
-            return
-        if self.cooldown > 0:
-            return
-        w = WEAPONS[self.weapon]
-        if self.weapon == "laser":
-            if self.beam is not None and not self.beam.done:
-                return
-            self._fire("laser")
-            self.cooldown = w["warmup"] + w["duration"] + 0.35
-            return
-        self._fire(self.weapon)
-        self.cooldown = 1.0 / w["fire_rate"]
+            self.edge_hit = 1.0
+        self.arsenal.step(dt, trigger, cursor)
 
 
 def wait_until(cond: Callable[[], bool], limit: float = 99.0, tick: float = 1 / 60) -> Script:

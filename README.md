@@ -21,21 +21,27 @@ Early development, built in short sprints with a playable or reviewable demo at 
 
 ## Play it
 
-Windows: download `BitMiner-WeaponGallery-windows.zip` from the
-[weapon-gallery release](https://github.com/claygriffderr/BitMiner/releases/tag/weapon-gallery), unzip it
-and run `BitMiner.exe`. Each push to a sprint branch rebuilds it. (The sprint 2 build stays on the
-[flight-test release](https://github.com/claygriffderr/BitMiner/releases/tag/flight-test).)
+Windows: download `BitMiner-CombatSandbox-windows.zip` from the
+[combat-sandbox release](https://github.com/claygriffderr/BitMiner/releases/tag/combat-sandbox), unzip it
+and run `BitMiner.exe`. Each push to a sprint branch rebuilds it. (Earlier sprints stay on the
+[weapon-gallery](https://github.com/claygriffderr/BitMiner/releases/tag/weapon-gallery) and
+[flight-test](https://github.com/claygriffderr/BitMiner/releases/tag/flight-test) releases.)
 
 From source (Python 3.13):
 
 ```
 pip install -r requirements.txt
 python -m bitminer                       # the menu
+python -m bitminer --mode sandbox        # straight into the combat sandbox
 python -m bitminer --mode gallery        # straight into the weapon gallery
 ```
 
-The menu leads to the flight test and the weapon gallery; Esc goes back to it.
+The menu leads to the flight test, the combat sandbox and the weapon gallery; Esc goes back to it.
 
+- Combat sandbox: wave after wave of infantry squads, guards and rapid assault ships in the asteroid
+  field. WASD flies, the mouse aims, click fires, 1 to 4 (or the mouse wheel, Q and E) picks the
+  weapon, N calls the next wave early, P pauses, Backspace starts a fresh fight. Going down costs
+  nothing: you are back a moment later, blinking.
 - Flight test: W main booster, S retro, A and D strafe, mouse to aim, R puts the ship back.
 - Weapon gallery: Left and Right pick a weapon or enemy attack, Up and Down the target or defense,
   Space replays, F switches between the auto pilot and free-fly (WASD, mouse, click to fire, 1 to 4
@@ -43,8 +49,10 @@ The menu leads to the flight test and the weapon gallery; Esc goes back to it.
 - Everywhere: Tab shows the tuning panel, C toggles the CRT filter, F11 is full screen. Slider
   changes save to `flight_tuning.json`.
 
-Starting values for the sliders live in `bitminer/data/tuning.json`, and every weapon, enemy and
-defense number in `bitminer/data/weapons.json`, so none of them are fixed in code.
+Starting values for the sliders live in `bitminer/data/tuning.json`, every weapon, enemy and
+defense number in `bitminer/data/weapons.json`, and how enemies fight and when waves arrive in
+`bitminer/data/combat.json`, so none of them are fixed in code. Each sandbox fight is also written
+to a `playdata` folder next to the settings file, for the adaptive AI to learn from later.
 
 ## Tech
 
@@ -54,9 +62,12 @@ with pixel-perfect integer scaling.
 - `bitminer/flight.py`: the ship's flight model (mass, boosters, turning, damper, soft speed cap)
 - `bitminer/field.py`: the wrap-around asteroid field and its collisions
 - `bitminer/graphics/`: the renderer (outline after rotation, bloom, parallax backdrop, CRT filter)
-- `bitminer/combat/`: the combat simulation (shots, missiles, beams, hits, shields, explosions)
+- `bitminer/combat/`: the combat simulation (shots, missiles, beams, hits, shields, explosions,
+  bumping), the enemy brains and waves (`ai.py`), your weapons (`arsenal.py`) and the sandbox
+  without graphics (`sandbox.py`)
+- `bitminer/playdata.py`: the play log
 - `bitminer/gallery/`: the weapon gallery's scenes and the director that plays them
-- `bitminer/views/`: the menu, flight test and gallery screens
+- `bitminer/views/`: the menu, flight test, combat sandbox and gallery screens
 - `bitminer/ui/`: the tuning panel and HUDs, in the pixel font
 - `bitminer/settings.py`: the tuning sliders and where your settings are saved
 

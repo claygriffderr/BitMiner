@@ -16,7 +16,7 @@ def _size(text: str) -> tuple[int, int]:
 def parse(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="bitminer", description="BitMiner")
     p.add_argument("--selftest", action="store_true", help="check the game without opening a window")
-    p.add_argument("--mode", choices=["menu", "flight", "gallery"], help="start here instead of the menu")
+    p.add_argument("--mode", choices=["menu", "flight", "sandbox", "gallery"], help="start here instead of the menu")
     p.add_argument("--scene", help="weapon gallery scene to open first, like missile-tank")
     p.add_argument("--record", help="record a GIF of every weapon gallery scene into this folder, then quit")
     p.add_argument("--scenes", help="with --record: only these scenes, comma separated")
@@ -25,7 +25,7 @@ def parse(argv=None) -> argparse.Namespace:
     p.add_argument("--no-panel", action="store_true", help="start with the tuning panel hidden")
     p.add_argument("--seed", type=int, default=7, help="asteroid field layout")
     p.add_argument("--settings", help="settings file to use instead of flight_tuning.json")
-    p.add_argument("--smoke", type=float, help="run for this many seconds on a script (the flight test flies a route), then quit")
+    p.add_argument("--smoke", type=float, help="run for this many seconds on a script (the flight test flies a route, the sandbox fights on auto pilot), then quit")
     p.add_argument("--shots", type=lambda s: [float(v) for v in s.split(",")],
                    help="with --smoke: take screenshots at these times, like 1,2.5,4")
     p.add_argument("--shot-dir", help="where screenshots go")
