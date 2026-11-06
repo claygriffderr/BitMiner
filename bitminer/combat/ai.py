@@ -15,6 +15,7 @@ import random
 from ..field import wrap_delta
 from ..flight import angle_to, forward_vector, right_vector, wrap_angle
 from . import shapes
+from .hunt import Task
 from .specs import AI, ENEMIES, ENEMY_WEAPONS, WAVES
 from .stage import ENEMY_GUN, SCOOP_REACH, Anim, Enemy, Lane, Stage, dist
 
@@ -52,6 +53,10 @@ class Brain:
         self.detour: tuple[float, float] | None = None   # a point off to the side, round the rocks
         self.detour_t = 0.0
         self.detour_side = 0.0
+        # Secure the Base: where it goes on its own while the enemy doesn't know where you are.
+        self.task = Task(battle)
+        self.aim: tuple[float, float, str] | None = None
+        self.cruising = False         # its group has a long way to go: fly at cruise speed
 
     @property
     def stage(self) -> Stage:
@@ -92,6 +97,9 @@ class Brain:
             e.mx = e.my = 0.0
             self._reset_watch()
             return True
+        hunt = self.battle.hunt
+        if hunt is not None and speed is None and (self.cruising or d > hunt.spec["cruise_from"]):
+            top = max(top, hunt.spec["cruise_speed"])     # a long way to go: cruise
         v = min(top, d / max(dt, 1e-6))
         ux, uy = self.battle.avoid(e, ux, uy, min(d, AI["avoid"]["look"]))
         e.mx, e.my = ux * v, uy * v
@@ -224,13 +232,16 @@ class Brain:
 
     def shoot(self, kind: str, lead: float, spread: float) -> None:
         """Fire at you, leading your movement by `lead` (0 to 1) and scattering by `spread` degrees."""
+        ship = self.stage.ship
+        self.shoot_at(kind, ship.x, ship.y, ship.vx, ship.vy, lead, spread)
+
+    def shoot_at(self, kind: str, x: float, y: float, vx: float, vy: float, lead: float, spread: float) -> None:
         st = self.stage
         e = self.e
-        ship = st.ship
         spec = ENEMY_WEAPONS["infantry_laser" if kind == "infantry" else "rapid_laser"]
         gx, gy = e.point(*ENEMY_GUN[e.kind])
-        t = dist(gx, gy, ship.x, ship.y) / spec["speed"]
-        ax, ay = ship.x + ship.vx * t * lead, ship.y + ship.vy * t * lead
+        t = dist(gx, gy, x, y) / spec["speed"]
+        ax, ay = x + vx * t * lead, y + vy * t * lead
         h = angle_to(ax - gx, ay - gy) + self.battle.rng.gauss(0.0, spread)
         fx, fy = forward_vector(h)
         st.enemy_shot(e, kind, (gx + fx * 100, gy + fy * 100))
@@ -238,10 +249,24 @@ class Brain:
 
     def clear_shot(self) -> bool:
         """Is there a straight line from this enemy's gun to you, with no rock in it?"""
+        ship = self.stage.ship
+        return self.clear_shot_to(ship.x, ship.y)
+
+    def clear_shot_to(self, x: float, y: float, short: float = 0.0) -> bool:
+        """No rock between its gun and (x, y), stopping `short` of it (a mine sits on its rock)."""
         st = self.stage
         e = self.e
         gx, gy = e.point(*ENEMY_GUN.get(e.kind, (0.0, 0.0)))
-        return st.rock_hit(gx, gy, st.ship.x, st.ship.y, 1.5) is None
+        if short > 0:
+            ux, uy, d = unit(x - gx, y - gy)
+            x, y = x - ux * min(short, d), y - uy * min(short, d)
+        return st.rock_hit(gx, gy, x, y, 1.5) is None
+
+    def own_aim(self, dt: float) -> tuple[float, float, str]:
+        """Where it goes on its own while the enemy doesn't know where you are."""
+        e = self.e
+        self.aim = self.task.tick(dt, e.x, e.y)
+        return self.aim
 
     def step(self, dt: float) -> None:
         raise NotImplementedError
@@ -262,6 +287,9 @@ class InfantryBrain(Brain):
         st = self.stage
         e = self.e
         ship = st.ship
+        if not self.battle.knows:
+            self._step_unaware(dt)
+            return
         self.fly(dt)
         near = dist(e.x, e.y, ship.x, ship.y) < self.cfg["fire_range"] * 1.15
         if near and st.ship_visible:
@@ -278,6 +306,34 @@ class InfantryBrain(Brain):
             self.fire_in = 0.25
             return
         self.shoot("infantry", self.cfg["aim_lead"], self.cfg["spread"])
+        self.fire_in = self.every * self.battle.rng.uniform(0.8, 1.25)
+
+    def _step_unaware(self, dt: float) -> None:
+        """Not knowing where you are: fly with the squad (or alone) and shoot any mine it raids."""
+        e = self.e
+        if self.squad is not None:
+            x, y, kind = self.squad.aim
+        else:
+            x, y, kind = self.own_aim(dt)
+            if kind == "raid":
+                ux, uy, d = unit(e.x - x, e.y - y)
+                stand = self.battle.hunt.spec["raid_standoff"]
+                self.goal = self.battle.free_point(x + ux * stand, y + uy * stand, e.body_r + AI["avoid"]["margin"])
+            else:
+                self.goal = (x, y)
+        self.fly(dt)
+        in_range = kind == "raid" and dist(e.x, e.y, x, y) < self.cfg["fire_range"]
+        if in_range:
+            self.face(x, y)
+        else:
+            self.face_travel()
+        self.fire_in -= dt
+        if self.fire_in > 0:
+            return
+        if not in_range or not self.clear_shot_to(x, y, short=14.0):
+            self.fire_in = 0.25
+            return
+        self.shoot_at("infantry", x, y, 0.0, 0.0, 0.0, self.cfg["spread"])
         self.fire_in = self.every * self.battle.rng.uniform(0.8, 1.25)
 
 
@@ -308,7 +364,7 @@ class GuardBrain(Brain):
         e = self.e
         cfg = self.cfg
         ship = st.ship
-        if self.cooldown > 0 or not st.ship_visible:
+        if self.cooldown > 0 or not st.ship_visible or not self.battle.knows:
             return False
         d = dist(e.x, e.y, ship.x, ship.y)
         if d > cfg["ram_range"]:
@@ -327,7 +383,17 @@ class GuardBrain(Brain):
         cfg = self.cfg
         ship = st.ship
         sq = self.guarding
+        knows = self.battle.knows
         if sq is None or not sq.members:
+            if not knows:
+                # Nothing to guard and no idea where you are: go where it is sent on its own.
+                x, y, kind = self.aim or (e.x, e.y, "travel")
+                if kind == "raid":
+                    ux, uy, d = unit(e.x - x, e.y - y)
+                    stand = self.battle.hunt.spec["raid_standoff"]
+                    x, y = x + ux * stand, y + uy * stand
+                self.goal = self.battle.free_point(x, y, e.body_r + AI["avoid"]["margin"])
+                return
             # Nothing to guard: close in on you, ready to ram.
             ux, uy, d = unit(e.x - ship.x, e.y - ship.y)
             if d < 1e-6:
@@ -335,8 +401,10 @@ class GuardBrain(Brain):
             keep = cfg["alone_ram"] * 0.8
             self.goal = (ship.x + ux * keep, ship.y + uy * keep)
             return
+        self.cruising = sq.cruising
         cx, cy = sq.centre()
-        ux, uy, d = unit(ship.x - cx, ship.y - cy)
+        tx, ty = (ship.x, ship.y) if knows else sq.aim[:2]       # the wall faces the threat, or the way ahead
+        ux, uy, d = unit(tx - cx, ty - cy)
         if d < 1e-6:
             ux, uy = 0.0, 1.0
         gap = min(cfg["wall_gap"], d * 0.5)
@@ -359,12 +427,18 @@ class GuardBrain(Brain):
         self.t += dt
 
         if self.state == "wall":
+            knows = self.battle.knows
+            if not knows and (self.guarding is None or not self.guarding.members):
+                self.own_aim(dt)
             self.plan_in -= dt
             if self.plan_in <= 0:
                 self.plan_in = cfg["replan"]
                 self.plan_wall()
             self.fly(dt)
-            self.face(ship.x, ship.y)
+            if knows:
+                self.face(ship.x, ship.y)
+            else:
+                self.face_travel()
             if self.wants_to_ram():
                 self._enter("deploy")
                 e.mx = e.my = 0.0
@@ -491,33 +565,50 @@ class RapidBrain(Brain):
         cfg = self.cfg
         ship = st.ship
         self.t += dt
+        if self.battle.knows:
+            tx, ty, tvx, tvy, behind = ship.x, ship.y, ship.vx, ship.vy, ship.angle + 180.0
+            visible = st.ship_visible
+        else:
+            tx, ty, kind = self.own_aim(dt)
+            if kind != "raid":
+                # No idea where you are and no mine to raid: go where it is sent.
+                if self.state != "hold":
+                    self.state = "hold"
+                    self.t = 0.0
+                self.goal = (tx, ty)
+                self.fly(dt)
+                self.face_travel()
+                return
+            tvx = tvy = 0.0
+            behind = self.offset * 3.0          # raids come in from all sides
+            visible = True
         if self.state == "hold":
             self.plan_in -= dt
-            if self.plan_in <= 0:
+            if self.plan_in <= 0 or self.goal is None:
                 self.plan_in = cfg["replan"]
-                fx, fy = forward_vector(ship.angle + 180.0 + self.offset)
-                self.goal = self.battle.free_point(ship.x + fx * cfg["hold_range"], ship.y + fy * cfg["hold_range"],
+                fx, fy = forward_vector(behind + self.offset)
+                self.goal = self.battle.free_point(tx + fx * cfg["hold_range"], ty + fy * cfg["hold_range"],
                                                    e.body_r + AI["avoid"]["margin"])
             there = self.fly(dt)
             if there or dist(e.x, e.y, *self.goal) < 30:
                 self.rest -= dt
-                self.face(ship.x, ship.y)
+                self.face(tx, ty)
             else:
                 self.face_travel()
-            if self.rest <= 0 and st.ship_visible:
-                self._dive()
+            if self.rest <= 0 and visible:
+                self._dive(tx, ty, tvx, tvy)
             return
         # Diving.
         there = self.fly(dt)
         self.face_travel()
-        dx, dy = ship.x - e.x, ship.y - e.y
+        dx, dy = tx - e.x, ty - e.y
         hx, hy = forward_vector(e.heading)
         ahead = dx * hx + dy * hy > 0
-        if (st.ship_visible and self.fired < self.gun["burst"] and ahead
+        if (visible and self.fired < self.gun["burst"] and ahead
                 and math.hypot(dx, dy) < cfg["fire_range"]):
             self.shot_in -= dt
             if self.shot_in <= 0:
-                self.shoot("rapid", cfg["aim_lead"], cfg["spread"])
+                self.shoot_at("rapid", tx, ty, tvx, tvy, cfg["aim_lead"], cfg["spread"])
                 self.fired += 1
                 self.shot_in = self.gun["burst_gap"]
         if there or self.t > cfg["pass_time"]:
@@ -527,15 +618,13 @@ class RapidBrain(Brain):
             self.offset = self.battle.rng.uniform(-1.0, 1.0) * cfg["hold_spread"]
             self.rest = self.battle.rng.uniform(*self.cfg["rest"])
 
-    def _dive(self) -> None:
-        st = self.stage
+    def _dive(self, tx: float, ty: float, tvx: float, tvy: float) -> None:
         e = self.e
         cfg = self.cfg
-        ship = st.ship
         rng = self.battle.rng
-        d = dist(e.x, e.y, ship.x, ship.y)
+        d = dist(e.x, e.y, tx, ty)
         lead = d / max(1.0, self.speed) * 0.5
-        px, py = ship.x + ship.vx * lead, ship.y + ship.vy * lead
+        px, py = tx + tvx * lead, ty + tvy * lead
         ux, uy, _ = unit(px - e.x, py - e.y)
         side = rng.choice((-1.0, 1.0))
         px, py = px + uy * cfg["pass_offset"] * side, py - ux * cfg["pass_offset"] * side
@@ -565,6 +654,12 @@ class Squad:
         self.bearing = angle_to(cx - ship.x, cy - ship.y)     # where it sits around you
         self.turn = battle.rng.choice((-1.0, 1.0))
         self.plan_in = 0.0
+        # What it is doing: "hunt" (round you), or while the enemy doesn't know where you are,
+        # "travel", "search", "raid" (round a mine) or "home".
+        self.task = Task(battle)
+        self.aim: tuple[float, float, str] = (ship.x, ship.y, "hunt")
+        self.mode = "hunt"
+        self.cruising = False
         for m in self.members:
             m.brain.squad = self
 
@@ -586,50 +681,85 @@ class Squad:
         self.plan_in = 0.0
 
     def step(self, dt: float) -> None:
+        hunt = self.battle.hunt
+        if hunt is None or hunt.known:
+            ship = self.battle.stage.ship
+            self.aim = (ship.x, ship.y, "hunt")
+        else:
+            self.aim = self.task.tick(dt, *self.centre())
         self.plan_in -= dt
-        if self.plan_in <= 0:
+        if self.plan_in <= 0 or self.aim[2] != self.mode:
             self.plan_in = self.cfg["replan"] * self.battle.rng.uniform(0.85, 1.15)
             self.plan()
 
     def plan(self) -> None:
         cfg = self.cfg
         rng = self.battle.rng
-        ship = self.battle.stage.ship
+        tx, ty, kind = self.aim
+        cx, cy = self.centre()
+        if kind != self.mode:
+            self.mode = kind
+            self.bearing = angle_to(cx - tx, cy - ty)
+        margin = AI["avoid"]["margin"]
+        if kind not in ("hunt", "raid"):
+            # On the move: in formation, facing the way it is going.
+            hunt = self.battle.hunt
+            ux, uy, d = unit(tx - cx, ty - cy)
+            lead = min(d, hunt.spec["march_lead"])
+            face = angle_to(ux, uy) if d > 1e-6 else angle_to(tx - cx, ty - cy)
+            ax, ay = cx + ux * lead, cy + uy * lead
+            slots = self.slots(ax, ay, R=0.0, bearing=face + 180.0)
+            rx, ry = right_vector(face)
+            order = sorted(self.members, key=lambda m: (m.x - cx) * rx + (m.y - cy) * ry)
+            self.cruising = d > hunt.spec["cruise_from"]
+            for m, slot in zip(order, slots):
+                m.brain.goal = self.battle.free_point(slot[0], slot[1], m.body_r + margin)
+                m.brain.cruising = self.cruising
+            return
+        self.cruising = False
+        for m in self.members:
+            m.brain.cruising = False
+        R = cfg["standoff"] if kind == "hunt" else self.battle.hunt.spec["raid_standoff"]
         if rng.random() < cfg.get("orbit_flip", 0.0):
             self.turn = -self.turn
         self.bearing = wrap_angle(self.bearing + self.turn * cfg["orbit"] * cfg["replan"])
-        # Keep clear of the other squads round you.
+        # Keep clear of the other squads round the same target.
         for other in self.battle.squads:
-            if other is self or not other.members:
+            if other is self or not other.members or other.mode != kind:
                 continue
-            need = math.degrees((self.width / 2 + other.width / 2 + cfg["squad_gap"]) / cfg["standoff"])
+            if kind == "raid" and other.task.mine is not self.task.mine:
+                continue
+            need = math.degrees((self.width / 2 + other.width / 2 + cfg["squad_gap"]) / R)
             diff = wrap_angle(self.bearing - other.bearing)
             if abs(diff) < need:
                 push = (need - abs(diff)) * 0.5
                 self.bearing = wrap_angle(self.bearing + (push if diff > 0 else -push if diff < 0 else push * self.turn))
-        slots = self.slots(ship.x, ship.y)
+        slots = self.slots(tx, ty, R=R)
         # Fill the slots in order across the formation, so nobody crosses another's path.
         rx, ry = right_vector(self.bearing + 180.0)
-        order = sorted(self.members, key=lambda m: (m.x - ship.x) * rx + (m.y - ship.y) * ry)
-        margin = AI["avoid"]["margin"]
+        order = sorted(self.members, key=lambda m: (m.x - tx) * rx + (m.y - ty) * ry)
         for m, slot in zip(order, slots):
             m.brain.goal = self.battle.free_point(slot[0], slot[1], m.body_r + margin)
 
-    def slots(self, sx: float, sy: float) -> list[tuple[float, float]]:
-        """Formation points, left to right as seen from the squad looking at you."""
+    def slots(self, sx: float, sy: float, R: float | None = None,
+              bearing: float | None = None) -> list[tuple[float, float]]:
+        """Formation points, left to right as seen from the squad looking at (sx, sy), `R` out
+        from it at `bearing` (the squad's own, unless given)."""
         cfg = self.cfg
         n = len(self.members)
-        R, gap = cfg["standoff"], cfg["spacing"]
-        if self.formation == "arc":
+        R = cfg["standoff"] if R is None else R
+        gap = cfg["spacing"]
+        bearing = self.bearing if bearing is None else bearing
+        if self.formation == "arc" and R > gap:
             step = math.degrees(gap / R)
             pts = []
             for i in range(n):
-                fx, fy = forward_vector(self.bearing - (i - (n - 1) / 2) * step)
+                fx, fy = forward_vector(bearing - (i - (n - 1) / 2) * step)
                 pts.append((sx + fx * R, sy + fy * R))
             return pts
-        fx, fy = forward_vector(self.bearing)
+        fx, fy = forward_vector(bearing)
         ax, ay = sx + fx * R, sy + fy * R
-        face = self.bearing + 180.0                 # the formation looks at you
+        face = bearing + 180.0                      # the formation looks at you
         tx, ty = forward_vector(face)
         rx, ry = right_vector(face)
         offsets = []
@@ -654,10 +784,26 @@ class Battle:
         self.rng = random.Random(seed)
         self.squads: list[Squad] = []
         self._flying: list[Enemy] = []
+        self.hunt = None            # a Hunt when enemies must find you; None and they always know
 
     def clear(self) -> None:
         self.squads = []
         self._flying = []
+
+    @property
+    def knows(self) -> bool:
+        """Do the enemies know where you are?"""
+        return self.hunt is None or self.hunt.known
+
+    def heading_home(self, e: Enemy) -> bool:
+        if self.knows or e.brain is None:
+            return False
+        sq = getattr(e.brain, "squad", None)
+        if sq is not None:
+            return sq.aim[2] == "home"
+        if isinstance(e.brain, GuardBrain) and e.brain.guarding is not None and e.brain.guarding.members:
+            return e.brain.guarding.aim[2] == "home"
+        return e.brain.aim is not None and e.brain.aim[2] == "home"
 
     # ------------------------------------------------------------ adding enemies
 
@@ -760,6 +906,8 @@ class Battle:
 
     def step(self, dt: float) -> None:
         st = self.stage
+        if self.hunt is not None:
+            self.hunt.step(dt)
         flying = [e for e in st.enemies if e.alive and e.dying < 0 and e.brain is not None]
         alive = set(id(e) for e in flying)
         fallen = [e for e in self._flying if id(e) not in alive]
@@ -788,6 +936,25 @@ class Battle:
                 e.mx = e.my = 0.0
                 continue
             e.brain.step(dt)
+        self._dock(flying)
+
+    def _dock(self, flying: list[Enemy]) -> None:
+        """Ships that gave up the search and reached the mothership go back inside."""
+        hunt = self.hunt
+        if hunt is None or hunt.known:
+            return
+        home = hunt.home()
+        if home is None:
+            return
+        for e in flying:
+            if not e.alive or not self.heading_home(e):
+                continue
+            hx, hy = hunt.near_copy(home, (e.x, e.y))
+            if dist(e.x, e.y, hx, hy) <= hunt.spec["dock"]:
+                e.alive = False
+                if isinstance(e.brain, GuardBrain):
+                    e.brain._drop_lane()
+                self.stage.events.append(("docked", e.kind))
 
     def _assign_guards(self, flying: list[Enemy]) -> None:
         guards = [e for e in flying if e.kind == "guard"]
@@ -803,12 +970,11 @@ class Battle:
             b.guarding = best
             if best is not None:
                 by_squad.setdefault(id(best), []).append(g)
-        ship = self.stage.ship
         for members in by_squad.values():
-            # Order the wall across the line to you, so guards don't swap sides.
+            # Order the wall across the line to you (or the way ahead), so guards don't swap sides.
             sq = members[0].brain.guarding
             cx, cy = sq.centre()
-            ux, uy, _ = unit(ship.x - cx, ship.y - cy)
+            ux, uy, _ = unit(sq.aim[0] - cx, sq.aim[1] - cy)
             members.sort(key=lambda g: (g.x - cx) * uy - (g.y - cy) * ux)
             for i, g in enumerate(members):
                 g.brain.slot = (i, len(members))

@@ -1,0 +1,18 @@
+{
+  "about": "The big map for Secure the Base. `scale` is how many times wider and taller than the combat sandbox (3200 x 2000) it is; 10 makes it 32000 x 20000, about 1.5 minutes across flat out. It wraps at every edge. Belts run across and down it, one every `belt_spacing` pixels, `per_1000px` rocks for each 1000 px of belt, scattered `half_width` either side of a wavy line that swings up to `wave` px. Clusters are round fields of rocks, `clusters_per_million` of them per million square pixels, each `radius` across with `rocks` in it. Loose rocks (`loose_per_million`) and big landmark rocks (`landmarks_per_million`) fill the open space. `ore` is the chance a rock carries ore (the glinting ones), by where it is. Home base sits a quarter of the way in on each axis; the mothership sits `mothership.distance` of the way round the map from it on each axis (0.5 is as far as it can get). Rocks are kept `clear` px away from each, and from where you start.",
+  "scale": 10,
+  "seed": 11,
+  "belt_spacing": 6000,
+  "per_1000px": 80,
+  "half_width": [90, 150],
+  "wave": [120, 320],
+  "clusters_per_million": 0.05,
+  "cluster_radius": [260, 700],
+  "cluster_rocks": [50, 160],
+  "loose_per_million": 11,
+  "landmarks_per_million": 1.1,
+  "ore": {"belt": 0.3, "cluster": 0.45, "loose": 0.2, "landmark": 0.6},
+  "home_base": {"clear": 420},
+  "mothership": {"distance": 0.5, "clear": 900},
+  "spawn_clear": 160
+}

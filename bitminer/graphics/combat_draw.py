@@ -32,6 +32,7 @@ MOTHERSHIP_FPS = 6
 CHARGE_LEVELS = 4        # mothership laser charge picture steps
 BAR_WIDTH = {"infantry": 14, "rapid": 12, "guard": 18, "tank": 26}
 BAR_SHOW = 2.5           # seconds a health bar stays after a hit
+MINE_BAR = 14            # width of a mine's health and ore bars
 # How white a full hit flash turns each hull. Big hulls flash less, or steady fire would bleach them.
 FLASH = {"tank": 0.6, "mothership": 0.2}
 
@@ -201,6 +202,23 @@ class StageDrawer:
                 pair = A.get(("mslane", L, frame, lane.locked), lambda: S.laser_warning(L, frame, lane.locked))
                 self._put(self.under, pair, cx, cy, lane.heading + 180)
 
+        # Your base and mine rigs, on the ground under everything that flies.
+        for st_ in stage.structures:
+            if not st_.alive:
+                continue
+            if st_.kind == "base":
+                frame = int(st_.clock * 2) % 2
+                self._put(self.under, A.get(("base", frame), lambda f=frame: S.home_base(f)), st_.x, st_.y)
+            elif st_.kind == "mine":
+                working = st_.ore_left > 0 and st_.hold < st_.hold_max
+                frame = int(st_.clock * 3) % 2 if working else 1
+                pair = A.get(("drill", frame), lambda f=frame: S.drill(f))
+                self._put(self.under, pair, st_.x, st_.y, st_.side)
+                if st_.flash > 0.02:
+                    white = A.plain(("drill", frame, "flash"), lambda f=frame: silhouette(S.drill(f)))
+                    self.under.add(white, st_.x, st_.y, st_.side, st_.flash * 0.8)
+                self._mine_bars(st_)
+
         # Enemy hulls, with the hit flash, laser heat and warp-in on top.
         box = None
         for e in stage.enemies:
@@ -334,6 +352,29 @@ class StageDrawer:
 
         for pool in (self.under, self.hulls, self.over, self.light):
             pool.end()
+
+    def _mine_bars(self, m) -> None:
+        """Health (cyan, pink when low) over ore left in the asteroid (gold), above the rig, plus a
+        blinking pip when its hold has ore waiting for you."""
+        w = MINE_BAR
+        x0 = round(m.x - w / 2)
+        top = round(m.y) + 15
+        put = self.over.add
+        px = self.pixel
+
+        def rect(left: float, bottom: float, rw: float, rh: float, color: str, alpha: float = 1.0) -> None:
+            if rw > 0 and rh > 0:
+                put(px, left + rw / 2, bottom + rh / 2, 0.0, alpha, rgba(color)[:3], (rw, rh))
+        rect(x0 - 1, top - 6, w + 2, 7, "console_black", 0.85)
+        health = m.health / max(1.0, m.max_health)
+        rect(x0, top - 2, w, 2, "console_mid")
+        rect(x0, top - 2, round(w * health), 2, "danger_pink" if health < 0.3 else "ion")
+        ore = m.ore_left / max(1.0, m.ore_max)
+        rect(x0, top - 5, w, 2, "console_mid")
+        rect(x0, top - 5, round(w * ore), 2, "ore")
+        if m.hold >= m.hold_max * 0.25 and int(m.clock * 3) % 2 == 0:
+            rect(x0 + w + 2, top - 5, 2, 2, "ore_hi")
+            self.light.add(px, x0 + w + 3, top - 4, 0.0, 1.0, rgba("ore_hi")[:3], (2, 2))
 
     def _fence(self, arena, glow: float) -> None:
         """A dashed line round the edge of the gallery's free-fly space, one game pixel wide."""

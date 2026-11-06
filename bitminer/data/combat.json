@@ -36,6 +36,57 @@
                                                    {"kind": "rapid", "count": 3}]}
     ]
   },
+  "hunt": {
+    "about": "Secure the Base only (the sandbox enemies always know where you are). Enemies know where you are only while one of them is within `sight` of you, or you hit one of them; then they all know. Once none has seen you for `lose_after` seconds they lose you and fly to where you were last seen, then search round it (`search_radius`) for `search_time` seconds before giving up and flying home to dock at the mothership. A group counts as there once it is within `arrive`. Ships flying further than `cruise_from` to get where they are going fly at `cruise_speed` (or their own speed, if faster). Before anyone has seen you they head for home base. Enemies that come within `sight` of one of your mines remember it; groups that know of a mine raid it (holding `raid_standoff` from it) instead of searching. A ship within `dock` of the mothership on its way home docks.",
+    "sight": 480,
+    "lose_after": 4.0,
+    "search_radius": 700,
+    "search_time": 45,
+    "arrive": 120,
+    "cruise_speed": 220,
+    "cruise_from": 500,
+    "march_lead": 320,
+    "raid_standoff": 130,
+    "dock": 150
+  },
+  "fleet": {
+    "about": "Secure the Base waves. The mothership launches the first wave `first` seconds in, and each next one `gap` seconds after only `few_left` or fewer enemies are still out (ships flying home don't count), and no more than `few_left_share` of the last wave, so a small wave has to be mostly beaten first. Each wave leaves from the mothership's hangar, so it takes a while to reach you; an alert says it is on its way, with no countdown. The list repeats with `grow` more ships in every group each time round. formation is line, wedge or arc.",
+    "first": 30,
+    "few_left": 3,
+    "few_left_share": 0.5,
+    "gap": 5,
+    "grow": 1,
+    "list": [
+      {"name": "SCOUTS", "groups": [{"kind": "infantry", "count": 3, "formation": "line"}]},
+      {"name": "PATROL", "groups": [{"kind": "infantry", "count": 4, "formation": "wedge"}]},
+      {"name": "SHIELD WALL", "groups": [{"kind": "infantry", "count": 4, "formation": "line"},
+                                         {"kind": "guard", "count": 2}]},
+      {"name": "RAIDERS", "groups": [{"kind": "rapid", "count": 3}, {"kind": "infantry", "count": 3, "formation": "arc"}]},
+      {"name": "TWO SQUADS", "groups": [{"kind": "infantry", "count": 4, "formation": "wedge"},
+                                        {"kind": "infantry", "count": 4, "formation": "arc"},
+                                        {"kind": "guard", "count": 1}]},
+      {"name": "THE SWARM", "groups": [{"kind": "infantry", "count": 5, "formation": "wedge"},
+                                       {"kind": "infantry", "count": 5, "formation": "line"},
+                                       {"kind": "guard", "count": 2}, {"kind": "rapid", "count": 3}]}
+    ]
+  },
+  "mines": {
+    "about": "Secure the Base. Press F near an asteroid (within `reach` of its edge) to set a mine on it; you can run `max` at once. Only asteroids at least `min_size` across take one, and with `ore_only` only those with ore (the glinting ones). An asteroid holds `ore_per_area` ore per square pixel of its picture, so big ones last longer (a 24 px rock about 58, a 48 px one about 230, a 96 px one about 920: at 2 a second, from half a minute to nearly eight). A mine digs `dig_rate` ore a second into its hold, up to `hold`, and stops while the hold is full. Fly within `pickup` of a mine to load its ore (your ship carries `cargo`), and within `unload` of home base to sell it for `credit_per_ore` credits each. A mine lasts until its asteroid runs dry and its hold is empty, or until enemies destroy it: it has `health`. Enemy shots hit anything within `radius` of it. Home base is `base_radius` across for hits and can't be destroyed yet.",
+    "max": 4,
+    "health": 900,
+    "radius": 8,
+    "reach": 40,
+    "min_size": 24,
+    "ore_only": true,
+    "ore_per_area": 0.1,
+    "dig_rate": 2.0,
+    "hold": 40,
+    "pickup": 48,
+    "cargo": 120,
+    "unload": 90,
+    "credit_per_ore": 1,
+    "base_radius": 30
+  },
   "sandbox": {
     "about": "`respawn` seconds after your ship goes down you are back, blinking (unhittable) for `invulnerable` seconds. Edge arrows point at up to `arrows` enemies within `arrow_range` that are off screen.",
     "respawn": 2.5,

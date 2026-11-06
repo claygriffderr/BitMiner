@@ -12,6 +12,7 @@ The game is 640x360 game pixels. Each one is k x k screen pixels, with k as big 
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,6 +31,7 @@ from .textures import GameTextures
 
 VIEW = (640, 360)
 BLOOM = 1.0
+TILE = 2048.0     # rocks are drawn in tiles this big, and only the tiles near the view are drawn
 
 
 @dataclass
@@ -101,25 +103,63 @@ class Renderer:
         self.resize(*window.get_framebuffer_size())
 
     def set_field(self, field: AsteroidField) -> None:
-        """Show this asteroid field: one sprite per rock, plus a glow sprite for ore rocks."""
+        """Show this asteroid field: one sprite per rock, plus a glow sprite for ore rocks, sorted
+        into map tiles so a big map only draws the rocks near the view."""
         art = self.art
         self.field = field
-        self.rocks = arcade.SpriteList(capacity=max(1, len(field)))
-        self.rock_glow = arcade.SpriteList()
+        self._tw_n = max(1, int(math.ceil(field.width / TILE)))
+        self._th_n = max(1, int(math.ceil(field.height / TILE)))
+        self._tw = field.width / self._tw_n
+        self._th = field.height / self._th_n
+        self.tiles: dict[int, tuple[arcade.SpriteList, arcade.SpriteList]] = {}
         self.rock_sprites: list[arcade.Sprite] = []
         self.glow_sprites: dict[int, arcade.Sprite] = {}
+        self._tile_of = np.zeros(len(field), dtype=np.int64)
         for i in range(len(field)):
             key = (int(field.size[i]), int(field.variant[i]), bool(field.ore[i]))
             s = arcade.Sprite(art.rock[key])
-            self.rocks.append(s)
+            tile = self._tile_key(float(field.x[i]), float(field.y[i]))
+            rocks, glow = self._tile(tile)
+            rocks.append(s)
             self.rock_sprites.append(s)
+            self._tile_of[i] = tile
             if key in art.rock_light:
                 g = arcade.Sprite(art.rock_light[key])
-                self.rock_glow.append(g)
+                glow.append(g)
                 self.glow_sprites[i] = g
         self._rx = np.full(len(field), np.nan)
         self._ry = np.full(len(field), np.nan)
         self.reach = float(field.size.max()) / 2 + 4 if len(field) else 0.0
+
+    def _tile_key(self, x: float, y: float) -> int:
+        col = int(x // self._tw) % self._tw_n
+        row = int(y // self._th) % self._th_n
+        return row * self._tw_n + col
+
+    def _tile(self, key: int) -> tuple[arcade.SpriteList, arcade.SpriteList]:
+        t = self.tiles.get(key)
+        if t is None:
+            t = self.tiles[key] = (arcade.SpriteList(), arcade.SpriteList())
+        return t
+
+    def _visible_tiles(self, cam_x: float, cam_y: float) -> dict[tuple[float, float], list[int]]:
+        """The tiles that overlap the view, grouped by which copy of the wrapping map they show:
+        {camera offset: [tile, ...]}."""
+        W, H = self.field.width, self.field.height
+        hx, hy = VIEW[0] / 2 + self.reach, VIEW[1] / 2 + self.reach
+        c0, c1 = math.floor((cam_x - hx) / self._tw), math.floor((cam_x + hx) / self._tw)
+        r0, r1 = math.floor((cam_y - hy) / self._th), math.floor((cam_y + hy) / self._th)
+        groups: dict[tuple[float, float], list[int]] = {}
+        seen = set()
+        for r in range(r0, r1 + 1):
+            for c in range(c0, c1 + 1):
+                key = (r % self._th_n) * self._tw_n + (c % self._tw_n)
+                off = (-(c // self._tw_n) * W, -(r // self._th_n) * H)
+                if (key, off) in seen:
+                    continue
+                seen.add((key, off))
+                groups.setdefault(off, []).append(key)
+        return groups
 
     # ------------------------------------------------------------ sizing
 
@@ -170,27 +210,25 @@ class Renderer:
         cx = snap(f.x[moved] - half, k) + half
         cy = snap(f.y[moved] - half, k) + half
         for j, i in enumerate(moved):
+            i = int(i)
             pos = (float(cx[j]), float(cy[j]))
-            self.rock_sprites[i].position = pos
-            g = self.glow_sprites.get(int(i))
+            s = self.rock_sprites[i]
+            s.position = pos
+            g = self.glow_sprites.get(i)
             if g is not None:
                 g.position = pos
+            tile = self._tile_key(float(f.x[i]), float(f.y[i]))
+            if tile != self._tile_of[i]:
+                old_rocks, old_glow = self.tiles[int(self._tile_of[i])]
+                rocks, glow = self._tile(tile)
+                old_rocks.remove(s)
+                rocks.append(s)
+                if g is not None:
+                    old_glow.remove(g)
+                    glow.append(g)
+                self._tile_of[i] = tile
         self._rx[moved] = f.x[moved]
         self._ry[moved] = f.y[moved]
-
-    def _wrap_offsets(self, cam_x: float, cam_y: float, half_w: float, half_h: float) -> list[tuple[float, float]]:
-        W, H = self.field.width, self.field.height
-        xs = [0.0]
-        if cam_x - half_w - self.reach < 0:
-            xs.append(W)
-        if cam_x + half_w + self.reach > W:
-            xs.append(-W)
-        ys = [0.0]
-        if cam_y - half_h - self.reach < 0:
-            ys.append(H)
-        if cam_y + half_h + self.reach > H:
-            ys.append(-H)
-        return [(x, y) for x in xs for y in ys]
 
     # ------------------------------------------------------------ drawing
 
@@ -202,7 +240,7 @@ class Renderer:
         cam_x = float(snap(view.cam_x, k))
         cam_y = float(snap(view.cam_y, k))
         offsets = self.backdrop.offsets(view.cam_ux, view.cam_uy, VIEW, k)
-        wraps = self._wrap_offsets(cam_x, cam_y, VIEW[0] / 2, VIEW[1] / 2)
+        tiles = self._visible_tiles(cam_x, cam_y)
         self.under.sync(cam_x, cam_y, k)
         self.over.sync(cam_x, cam_y, k)
 
@@ -239,10 +277,13 @@ class Renderer:
         # 1. Scene.
         self.scene_fbo.use()
         self.backdrop.draw(offsets, k, (W, H))
-        for ox, oy in wraps:
+        for (ox, oy), keys in tiles.items():
             self.world_cam.position = (cam_x + ox, cam_y + oy)
             self.world_cam.use()
-            self.rocks.draw(pixelated=True)
+            for key in keys:
+                t = self.tiles.get(key)
+                if t is not None:
+                    t[0].draw(pixelated=True)
         self.world_cam.position = (cam_x, cam_y)
         self.world_cam.use()
         if stage is not None:
@@ -282,10 +323,13 @@ class Renderer:
         self.backdrop.draw_light(offsets, VIEW)
         gl.glBlendEquation(gl.GL_MAX)
         try:
-            for ox, oy in wraps:
+            for (ox, oy), keys in tiles.items():
                 self.light_cam.position = (cam_x + ox, cam_y + oy)
                 self.light_cam.use()
-                self.rock_glow.draw(pixelated=True)
+                for key in keys:
+                    t = self.tiles.get(key)
+                    if t is not None and len(t[1]):
+                        t[1].draw(pixelated=True)
             self.light_cam.position = (cam_x, cam_y)
             self.light_cam.use()
             self.under.light_sprites.draw(pixelated=True)

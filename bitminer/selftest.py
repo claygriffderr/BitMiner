@@ -1,5 +1,5 @@
 """A quick check that needs no window: build every picture, fly the ship, play some gallery
-scenes, fight in the combat sandbox, save and load settings.
+scenes, fight in the combat sandbox, play Secure the Base, save and load settings.
 
 The Windows build runs this on the build machine (`BitMiner.exe --selftest`) to prove that
 everything it needs made it into the package.
@@ -94,6 +94,24 @@ def run() -> int:
         assert log.path.exists() and log.path.stat().st_size > 0, "the play log was not written"
     assert sb.waves.number >= 1, "no wave arrived"
     assert sb.stage.enemies or sb.kills, "the wave never showed up"
+
+    # Secure the Base: the big map builds, and 40 seconds on auto pilot sets mines and digs ore
+    # while the first wave launches.
+    from .combat.campaign import Campaign, autopilot as campaign_pilot
+
+    game = Campaign(Quiet(), Quiet(), settings.Tuning())
+    assert len(game.world.field) > 5000, "the big map came out nearly empty"
+    with tempfile.TemporaryDirectory() as d:
+        log = PlayLog(Path(d), {"mode": "selftest-campaign"})
+        t = 0.0
+        for _ in range(60 * 40):
+            controls, trigger, cursor, set_mine = campaign_pilot(game, t)
+            log.record(1 / 60, game.step(1 / 60, controls, trigger, cursor, set_mine), game)
+            t += 1 / 60
+        log.close(game)
+    assert game.mines, "no mine was set"
+    assert game.cargo > 0 or game.credits > 0, "no ore was collected"
+    assert game.fleet.number >= 1, "the first wave never launched"
 
     # Settings.
     with tempfile.TemporaryDirectory() as d:

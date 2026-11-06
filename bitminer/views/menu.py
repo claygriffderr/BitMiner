@@ -1,4 +1,4 @@
-"""The start menu: Flight Test, Weapon Gallery or Quit, over a slow drift through the asteroid field."""
+"""The start menu: Secure the Base, Flight Test, Combat Sandbox, Weapon Gallery or Quit, over a slow drift through the asteroid field."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from ..ui.text import TextLayer
 from ..world import FlightWorld
 
 ITEMS = [
+    ("campaign", "SECURE THE BASE", "MINE THE ASTEROIDS AND HOLD OUT AGAINST THE MOTHERSHIP'S WAVES."),
     ("flight", "FLIGHT TEST", "FLY THE SHIP THROUGH THE ASTEROIDS AND TUNE HOW IT HANDLES."),
     ("sandbox", "COMBAT SANDBOX", "FIGHT WAVE AFTER WAVE OF ENEMIES IN THE ASTEROID FIELD."),
     ("gallery", "WEAPON GALLERY", "EVERY WEAPON, ENEMY ATTACK AND EXPLOSION, PLAYING ON A LOOP."),
@@ -53,13 +54,13 @@ class MenuView(arcade.View):
         self.text = TextLayer(window.textures)
         self.cursor = arcade.SpriteList()
         self.time = 0.0
-        self.selected = 1          # the newest screen: the combat sandbox
+        self.selected = 0          # the newest screen: Secure the Base
 
         logo = arcade.Sprite(tex(title_image(), "menu_title"))
         logo.center_x = VIEW[0] / 2
         logo.center_y = 262
         self.sprites.append(logo)
-        self.text.label("SPRINT 4 BUILD: COMBAT SANDBOX", VIEW[0] // 2, 222, "hud_dim", "center",
+        self.text.label("SPRINT 5 BUILD: MAP, MINES AND THE HUNT", VIEW[0] // 2, 222, "hud_dim", "center",
                         shadow="console_black")
 
         n = len(ITEMS)

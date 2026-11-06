@@ -101,12 +101,13 @@ class PlayLog:
         near = Counter()
         nearest = None
         for e in st.enemies:
-            if not e.alive or e.dying >= 0:
+            if not e.alive or e.dying >= 0 or e.kind == "mothership":
                 continue
             d = math.hypot(e.x - ship.x, e.y - ship.y)
             if d < 400:
                 near[e.kind] += 1
             nearest = d if nearest is None else min(nearest, d)
+        extra = sb.log_extra() if hasattr(sb, "log_extra") else {}
         self._line({
             "t": t, "type": "sample",
             "x": round(ship.x % W, 1), "y": round(ship.y % H, 1),
@@ -114,7 +115,7 @@ class PlayLog:
             "shield": round(st.shield, 1), "hull": round(st.hull, 1), "down": st.ship_down,
             "weapon": sb.arsenal.weapon, "wave": sb.waves.number,
             "near": dict(near), "nearest": None if nearest is None else round(nearest, 1),
-            "counts": dict(self.counts),
+            "counts": dict(self.counts), **extra,
         })
         self.counts.clear()
 
