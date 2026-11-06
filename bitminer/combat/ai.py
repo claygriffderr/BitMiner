@@ -42,30 +42,175 @@ class Brain:
         self.cfg = AI[self.kind]
         self.speed = float(ENEMIES[e.kind]["speed"])
         e.brain = self
+        # Watching for being stuck: where it was when the watch began, and how far it meant to fly since.
+        self.watch_from = (e.x, e.y)
+        self.watch_t = 0.0
+        self.watch_want = 0.0
+        self.escape = 0.0             # seconds left breaking loose
+        self.escape_dir = (0.0, 0.0)
+        self.stuck_count = 0          # times in a row it got stuck
+        self.detour: tuple[float, float] | None = None   # a point off to the side, round the rocks
+        self.detour_t = 0.0
+        self.detour_side = 0.0
 
     @property
     def stage(self) -> Stage:
         return self.battle.stage
 
     def moved(self, dx: float, dy: float) -> None:
-        """The stage moved this enemy to another copy of wrapping space: move the goal with it."""
+        """The stage moved this enemy to another copy of wrapping space: move its points with it."""
         if self.goal is not None:
             self.goal = (self.goal[0] + dx, self.goal[1] + dy)
+        if self.detour is not None:
+            self.detour = (self.detour[0] + dx, self.detour[1] + dy)
+        self.watch_from = (self.watch_from[0] + dx, self.watch_from[1] + dy)
 
     def fly(self, dt: float, speed: float | None = None) -> bool:
         """Head straight for the goal, around rocks. True once there."""
         e = self.e
-        if self.goal is None:
+        top = self.speed if speed is None else speed
+        if self.escape > 0:
+            # Breaking loose: straight out along the most open way it found.
+            self.escape -= dt
+            e.mx, e.my = self.escape_dir[0] * top, self.escape_dir[1] * top
+            if self.escape <= 0:
+                self._reset_watch()
+                self._plan_detour()
+            return False
+        if self.detour is not None:
+            # Out of the pocket: go round by the side before heading for the goal again.
+            self.detour_t -= dt
+            if self.goal is None or self.detour_t <= 0 or dist(e.x, e.y, *self.detour) < 12:
+                self.detour = None
+        target = self.detour if self.detour is not None else self.goal
+        if target is None:
             e.mx = e.my = 0.0
+            self._reset_watch()
             return True
-        ux, uy, d = unit(self.goal[0] - e.x, self.goal[1] - e.y)
-        if d < 0.75:
+        ux, uy, d = unit(target[0] - e.x, target[1] - e.y)
+        if d < 0.75 and self.detour is None:
             e.mx = e.my = 0.0
+            self._reset_watch()
             return True
-        v = min(self.speed if speed is None else speed, d / max(dt, 1e-6))
+        v = min(top, d / max(dt, 1e-6))
         ux, uy = self.battle.avoid(e, ux, uy, min(d, AI["avoid"]["look"]))
         e.mx, e.my = ux * v, uy * v
+        self._watch(dt, min(v * dt, d))
         return False
+
+    def _reset_watch(self) -> None:
+        self.watch_from = (self.e.x, self.e.y)
+        self.watch_t = 0.0
+        self.watch_want = 0.0
+
+    def _watch(self, dt: float, want: float) -> None:
+        """Every `stuck_check` seconds of trying to fly somewhere, see whether it actually got
+        anywhere. Covering less than `stuck_ratio` of the way it meant to means it is stuck."""
+        cfg = AI["avoid"]
+        self.watch_t += dt
+        self.watch_want += want
+        if self.watch_t < cfg["stuck_check"]:
+            return
+        e = self.e
+        moved = dist(e.x, e.y, *self.watch_from)
+        if self.watch_want > 8.0 and moved < self.watch_want * cfg["stuck_ratio"]:
+            self.break_loose()
+        else:
+            self.stuck_count = 0
+        self._reset_watch()
+
+    def open_ways(self, n: int, reach: float) -> list[tuple[float, float, float]]:
+        """How far this enemy could fly in each of `n` directions before touching a rock (up to
+        `reach`): (ux, uy, free). A rock it is already pressed against only blocks the ways into it."""
+        e = self.e
+        f = self.stage.field
+        r = e.body_r + 1.0
+        ways = [(math.cos(k * math.tau / n), math.sin(k * math.tau / n)) for k in range(n)]
+        free = [reach] * n
+        if f is not None and len(f):
+            pad = reach + r
+            idx, dx, dy = f.near(e.x, e.y, pad, pad)
+            for i, cx, cy in zip(idx, dx, dy):
+                R = f.r[i] + r
+                inside = cx * cx + cy * cy <= R * R
+                for k, (ux, uy) in enumerate(ways):
+                    b = cx * ux + cy * uy
+                    if b <= 0:
+                        continue                      # the rock is behind this way
+                    if inside:
+                        free[k] = 0.0
+                        continue
+                    across = cx * cx + cy * cy - b * b
+                    if across >= R * R:
+                        continue
+                    free[k] = min(free[k], max(0.0, b - math.sqrt(R * R - across)))
+        return [(ux, uy, fr) for (ux, uy), fr in zip(ways, free)]
+
+    def break_loose(self) -> None:
+        """Stuck: look round for the most open way out and fly straight along it for up to
+        `unstick_time` seconds. Each time in a row it gets stuck, it picks more loosely among the
+        open ways (up to `unstick_swing` degrees off), so it doesn't keep trying the same."""
+        st = self.stage
+        e = self.e
+        cfg = AI["avoid"]
+        rng = self.battle.rng
+        ways = self.open_ways(int(cfg["probe_ways"]), float(cfg["probe"]))
+        best = max(w[2] for w in ways)
+        loose = min(3, self.stuck_count)
+        # Among the ways nearly as open as the best, take one at random (more freely when stuck again).
+        keep = 0.9 - 0.15 * loose
+        pick = [w for w in ways if w[2] >= best * keep]
+        ux, uy, free = rng.choice(pick)
+        a = math.atan2(uy, ux) + rng.uniform(-1.0, 1.0) * math.radians(cfg["unstick_swing"]) * loose / 3
+        self.escape_dir = (math.cos(a), math.sin(a))
+        top = max(1.0, self.speed)
+        self.escape = min(cfg["unstick_time"] * (1 + 0.5 * loose), max(0.2, (free - 2.0) / top))
+        self.stuck_count += 1
+        self.detour = None
+        st.events.append(("stuck", e.kind))
+
+    def _plan_detour(self) -> None:
+        """After breaking loose, pick a point `detour` off to one side of the straight way to the
+        goal, so it goes round the rocks instead of straight back in: the side it broke out towards
+        (the other side if it got stuck again straight after), or whichever side has a clear path."""
+        e = self.e
+        st = self.stage
+        cfg = AI["avoid"]
+        if self.goal is None or cfg.get("detour", 0) <= 0:
+            return
+        ux, uy, d = unit(self.goal[0] - e.x, self.goal[1] - e.y)
+        if d < 1.0:
+            return
+        px, py = -uy, ux                      # square on to the way to the goal
+        lean = px * self.escape_dir[0] + py * self.escape_dir[1]
+        if self.stuck_count > 1 and self.detour_side:
+            first = -self.detour_side         # that way failed: try the other
+        elif abs(lean) > 0.2:
+            first = 1.0 if lean > 0 else -1.0
+        else:
+            first = self.battle.rng.choice((-1.0, 1.0))
+        far = cfg["detour"] * (1 + 0.5 * min(3, self.stuck_count - 1))
+        pad = e.body_r + cfg["margin"]
+        ahead = min(d, far)
+        best = None
+        # Off to the side and a little on, straight off to the side, then off to the side and back.
+        for k in (0.5, 0.0, -0.5):
+            for side in (first, -first):
+                x = e.x + px * side * far + ux * ahead * k
+                y = e.y + py * side * far + uy * ahead * k
+                x, y = self.battle.free_point(x, y, pad)
+                hit = st.rock_hit(e.x, e.y, x, y, e.body_r + 1.0)
+                clear = 1.0 if hit is None else dist(e.x, e.y, hit[0], hit[1]) / max(1.0, dist(e.x, e.y, x, y))
+                if best is None or clear > best[0] + 1e-6:
+                    best = (clear, side, x, y)
+                if hit is None:
+                    break
+            if best[0] >= 1.0:
+                break
+        _, side, x, y = best
+        self.detour_side = side
+        self.detour = (x, y)
+        self.detour_t = cfg["detour_time"]
 
     def face(self, x: float, y: float) -> None:
         e = self.e
@@ -137,7 +282,8 @@ class InfantryBrain(Brain):
 
 
 class GuardBrain(Brain):
-    """Stands between you and the squad it guards. When it or an ally is in trouble, it rams you."""
+    """Walls off the squad it guards so the infantry can shoot over it. It only rams you once that
+    squad is down to a couple of ships (or it has none to guard), aiming right up to the last moment."""
 
     kind = "guard"
 
@@ -148,7 +294,6 @@ class GuardBrain(Brain):
         self.t = 0.0
         self.plan_in = 0.0
         self.cooldown = battle.rng.uniform(0.5, 1.5)
-        self.alert = 0.0
         self.lane: Lane | None = None
         self.reach = 0.0
         self.travelled = 0.0
@@ -168,11 +313,12 @@ class GuardBrain(Brain):
         d = dist(e.x, e.y, ship.x, ship.y)
         if d > cfg["ram_range"]:
             return False
-        alone = self.guarding is None
-        trouble = (e.health < cfg["low"] * e.max_health or self.alert > 0
-                   or (alone and d < cfg["alone_ram"]))
-        if not trouble:
-            return False
+        sq = self.guarding
+        if sq is None or not sq.members:
+            if d > cfg["alone_ram"]:
+                return False
+        elif len(sq.members) > cfg["ram_when_left"]:
+            return False                   # the squad can still fight: hold the wall
         return st.rock_hit(e.x, e.y, ship.x, ship.y, 4.0) is None
 
     def plan_wall(self) -> None:
@@ -194,9 +340,14 @@ class GuardBrain(Brain):
         if d < 1e-6:
             ux, uy = 0.0, 1.0
         gap = min(cfg["wall_gap"], d * 0.5)
+        # The guards share out the squad's width between them, each covering its own stretch.
+        across = [(m.x - cx) * uy - (m.y - cy) * ux for m in sq.members]
         i, n = self.slot
-        side = (i - (n - 1) / 2) * cfg["spacing"]
-        self.goal = (cx + ux * gap + uy * side, cy + uy * gap - ux * side)
+        width = max(max(across) - min(across), n * cfg["spacing"])
+        mid = (max(across) + min(across)) / 2
+        side = mid + ((i + 0.5) / n - 0.5) * width
+        x, y = cx + ux * gap + uy * side, cy + uy * gap - ux * side
+        self.goal = self.battle.free_point(x, y, e.body_r + AI["avoid"]["margin"])
 
     def step(self, dt: float) -> None:
         st = self.stage
@@ -205,7 +356,6 @@ class GuardBrain(Brain):
         spec = self.spec
         ship = st.ship
         self.cooldown = max(0.0, self.cooldown - dt)
-        self.alert = max(0.0, self.alert - dt)
         self.t += dt
 
         if self.state == "wall":
@@ -236,13 +386,25 @@ class GuardBrain(Brain):
                 if not st.ship_visible:
                     self._enter("fold")
                     return
-                # The lane flashes along the path it is about to take, then the heading is locked.
+                # The lane flashes along the path it is about to take.
                 self.face(ship.x, ship.y)
                 self.reach = dist(e.x, e.y, ship.x, ship.y) + 40
                 self.lane = Lane("ram", e.x, e.y, e.heading, self.reach)
                 st.lanes.append(self.lane)
                 self._enter("warn")
         elif self.state == "warn":
+            lock_at = spec["warn_time"] - cfg["lock_time"]
+            if self.t < lock_at and st.ship_visible:
+                # It keeps turning to follow you (at `track_turn`) until the lane locks.
+                want = angle_to(ship.x - e.x, ship.y - e.y)
+                turn = cfg["track_turn"] * dt
+                e.heading = wrap_angle(e.heading + max(-turn, min(turn, wrap_angle(want - e.heading))))
+                self.reach = dist(e.x, e.y, ship.x, ship.y) + 40
+            if self.lane is not None:
+                self.lane.x, self.lane.y = e.x, e.y
+                self.lane.heading = e.heading
+                self.lane.length = self.reach
+                self.lane.locked = self.t >= lock_at
             if self.t >= spec["warn_time"]:
                 self._drop_lane()
                 self.travelled = 0.0
@@ -259,7 +421,6 @@ class GuardBrain(Brain):
             if self.t >= 0.3:
                 e.ram = 0
                 self.cooldown = cfg["ram_cooldown"]
-                self.alert = 0.0
                 self.plan_in = 0.0
                 self._enter("wall")
 
@@ -335,7 +496,8 @@ class RapidBrain(Brain):
             if self.plan_in <= 0:
                 self.plan_in = cfg["replan"]
                 fx, fy = forward_vector(ship.angle + 180.0 + self.offset)
-                self.goal = (ship.x + fx * cfg["hold_range"], ship.y + fy * cfg["hold_range"])
+                self.goal = self.battle.free_point(ship.x + fx * cfg["hold_range"], ship.y + fy * cfg["hold_range"],
+                                                   e.body_r + AI["avoid"]["margin"])
             there = self.fly(dt)
             if there or dist(e.x, e.y, *self.goal) < 30:
                 self.rest -= dt
@@ -449,8 +611,9 @@ class Squad:
         # Fill the slots in order across the formation, so nobody crosses another's path.
         rx, ry = right_vector(self.bearing + 180.0)
         order = sorted(self.members, key=lambda m: (m.x - ship.x) * rx + (m.y - ship.y) * ry)
+        margin = AI["avoid"]["margin"]
         for m, slot in zip(order, slots):
-            m.brain.goal = slot
+            m.brain.goal = self.battle.free_point(slot[0], slot[1], m.body_r + margin)
 
     def slots(self, sx: float, sy: float) -> list[tuple[float, float]]:
         """Formation points, left to right as seen from the squad looking at you."""
@@ -551,6 +714,26 @@ class Battle:
 
     # ------------------------------------------------------------ steering
 
+    def free_point(self, x: float, y: float, r: float) -> tuple[float, float]:
+        """The nearest point to (x, y) where a hull `r` across doesn't overlap a rock, so nobody
+        is sent to a spot it can never reach."""
+        f = self.stage.field
+        if f is None or not len(f):
+            return x, y
+        for _ in range(3):
+            idx, dx, dy = f.near(x, y, r, r)
+            moved = False
+            for i, ddx, ddy in zip(idx, dx, dy):
+                d = math.hypot(ddx, ddy)
+                over = f.r[i] + r - d
+                if over > 0:
+                    nx, ny = (ddx / d, ddy / d) if d > 1e-6 else (1.0, 0.0)
+                    x, y = x - nx * over, y - ny * over
+                    moved = True
+            if not moved:
+                break
+        return x, y
+
     def avoid(self, e: Enemy, ux: float, uy: float, ahead: float) -> tuple[float, float]:
         """Swing round a rock in the way, on the side the path already leans to."""
         st = self.stage
@@ -597,7 +780,7 @@ class Battle:
                 best.join(sq)
         self.squads = [sq for sq in self.squads if sq.members]
 
-        self._assign_guards(flying, fallen)
+        self._assign_guards(flying)
         for sq in self.squads:
             sq.step(dt)
         for e in flying:
@@ -606,8 +789,7 @@ class Battle:
                 continue
             e.brain.step(dt)
 
-    def _assign_guards(self, flying: list[Enemy], fallen: list[Enemy]) -> None:
-        cfg = AI["guard"]
+    def _assign_guards(self, flying: list[Enemy]) -> None:
         guards = [e for e in flying if e.kind == "guard"]
         if not guards:
             return
@@ -621,16 +803,6 @@ class Battle:
             b.guarding = best
             if best is not None:
                 by_squad.setdefault(id(best), []).append(g)
-            # Trouble nearby puts it on alert.
-            for e in flying:
-                if (e.kind != "guard" and e.health < cfg["ally_low"] * e.max_health
-                        and dist(g.x, g.y, e.x, e.y) < cfg["ally_radius"]):
-                    b.alert = cfg["alert"]
-                    break
-            for e in fallen:
-                if e.kind != "guard" and dist(g.x, g.y, e.x, e.y) < cfg["ally_radius"]:
-                    b.alert = cfg["alert"]
-                    break
         ship = self.stage.ship
         for members in by_squad.values():
             # Order the wall across the line to you, so guards don't swap sides.

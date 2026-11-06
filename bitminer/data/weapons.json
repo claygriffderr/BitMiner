@@ -1,16 +1,16 @@
 {
-  "about": "Weapon, enemy and defense numbers for the weapon gallery (and later the combat sprint). Speeds are game pixels per second, times are seconds, damage is health points. Missiles launch one at a time, `gap` seconds apart from the left and right pods in turn; once a salvo is spent the rack takes `reload` seconds to refill. The laser holds `charges` shots and gets one back every `recharge` seconds. Your shield starts recharging `shield_delay` seconds after the last hit, at `shield_regen` a second. Each armor level stops `armor_block` of every hull hit. A collision only hurts once it changes your speed (or theirs) by more than `impact.safe_speed`; past that, damage is the extra speed times `player_damage` (or `enemy_damage`). Nothing here is fixed in code.",
+  "about": "Weapon, enemy and defense numbers for the weapon gallery (and later the combat sprint). Speeds are game pixels per second, times are seconds, damage is health points. Missiles launch one at a time, `gap` seconds apart from the left and right pods in turn; once a salvo is spent the rack takes `reload` seconds to refill. The laser burns through every enemy in its path at `dps` (only asteroids and the mothership stop it), holds `charges` shots and gets one back every `recharge` seconds. Your shield starts recharging `shield_delay` seconds after the last hit, at `shield_regen` a second. Each armor level stops `armor_block` of every hull hit. A collision only hurts once it changes your speed (or theirs) by more than `impact.safe_speed`; past that, damage is the extra speed times `player_damage` (or `enemy_damage`). Nothing here is fixed in code.",
   "player_weapons": {
     "auto":    {"label": "AUTO CANNON", "fire_rate": 11, "speed": 520, "damage": 4, "spread": 2.5, "range": 360},
     "sniper":  {"label": "SNIPER", "fire_rate": 0.9, "speed": 1250, "damage": 34, "pierce": 3, "range": 520},
     "missile": {"label": "MISSILES", "salvo": 6, "gap": 0.32, "reload": 2.5, "launch_speed": 90, "accel": 420, "max_speed": 300,
                 "turn_rate": 260, "damage": 30, "blast_radius": 24, "blast_push": 140, "range": 600},
-    "laser":   {"label": "LASER", "warmup": 0.25, "duration": 1.5, "length": 640, "dps": 120,
+    "laser":   {"label": "LASER", "warmup": 0.25, "duration": 1.5, "length": 640, "dps": 360,
                 "charges": 3, "recharge": 45}
   },
   "enemies": {
     "infantry":   {"label": "INFANTRY", "health": 16, "mass": 1.0, "speed": 70},
-    "guard":      {"label": "GUARD", "health": 90, "mass": 3.0, "speed": 40, "ram_speed": 430, "ram_damage": 30, "warn_time": 0.9},
+    "guard":      {"label": "GUARD", "health": 90, "mass": 3.0, "speed": 55, "ram_speed": 430, "ram_damage": 30, "warn_time": 0.9},
     "rapid":      {"label": "RAPID ASSAULT", "health": 10, "mass": 0.6, "speed": 250},
     "tank":       {"label": "TANK", "health": 300, "mass": 8.0, "speed": 30},
     "mothership": {"label": "MOTHERSHIP", "health": 3000, "mass": 400.0}

@@ -193,7 +193,7 @@ class StageDrawer:
             fx, fy = forward_vector(lane.heading)
             cx, cy = lane.x + fx * L / 2, lane.y + fy * L / 2
             if lane.kind == "ram":
-                frame = int(t * 10) % 2
+                frame = int(t * (24 if lane.locked else 10)) % 2     # flashes fast once it locks
                 pair = A.get(("ramlane", L, frame), lambda: S.ram_warning(L, frame))
                 self._put(self.under, pair, cx, cy, lane.heading)
             else:
@@ -261,7 +261,7 @@ class StageDrawer:
             fx, fy = forward_vector(b.heading)
             if b.owner == "player":
                 # Cut short where a rock stops it.
-                L = int(round(b.length)) if b.reach >= b.length else max(LANE_STEP, int(round(b.reach / LANE_STEP)) * LANE_STEP)
+                L = int(round(b.length)) if b.reach >= b.length else max(2 * LANE_STEP, int(round(b.reach / LANE_STEP)) * LANE_STEP)
                 frame = int(t * 30) % 2
                 pair = A.get(("lsr", L, frame), lambda L=L, f=frame: S.laser_player(L, f))
                 cx, cy = b.x + fx * L / 2, b.y + fy * L / 2

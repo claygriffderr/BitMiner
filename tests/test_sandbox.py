@@ -159,6 +159,47 @@ def test_the_laser_stops_at_a_rock():
     assert behind.health == 1000
 
 
+def test_the_laser_kills_infantry_and_rapid_at_once_and_guards_in_a_quarter_second():
+    spec = WEAPONS["laser"]
+    for kind, most in (("infantry", 0.06), ("rapid", 0.06), ("guard", 0.3)):
+        st = stage()
+        e = st.spawn(kind, C[0], C[1] + 60, warp=False)
+        st.start_laser()
+        t = 0.0
+        while e.alive and e.dying < 0 and t < 2.0:
+            st.step(DT)
+            t += DT
+        assert not e.alive, kind
+        assert t - spec["warmup"] <= most + DT, (kind, t)
+    assert 90 / spec["dps"] >= 0.2                      # a guard isn't instant either
+
+
+def test_the_laser_burns_through_every_enemy_in_its_path():
+    st = stage()
+    line = [st.spawn("guard", C[0], C[1] + 40 + 30 * i, warp=False, health=1000) for i in range(4)]
+    st.start_laser()
+    run(st, WEAPONS["laser"]["warmup"] + 0.2)
+    assert all(e.health < 1000 for e in line)
+
+
+def test_the_laser_stops_on_the_mothership():
+    st = stage()
+    ms = st.spawn("mothership", C[0], C[1] + 200, warp=False, heading=180, health=10 ** 6)
+    behind = st.spawn("infantry", C[0], C[1] + 400, warp=False, health=1000)
+    beam = st.start_laser()
+    run(st, WEAPONS["laser"]["warmup"] + 0.3)
+    assert ms.health < 10 ** 6
+    assert behind.health == 1000
+    assert beam.reach < 200
+
+
+def test_a_laser_cut_short_on_the_nose_still_has_a_picture():
+    from art import sprites as S
+    for length in range(1, 12):
+        for frame in (0, 1):
+            assert S.laser_player(length, frame).size == (9, length)
+
+
 def test_infantry_hold_fire_with_a_rock_in_the_way():
     st = stage([(C[0], C[1] + 70, 40)])
     battle = Battle(st)
@@ -261,19 +302,37 @@ def test_a_guard_walls_off_its_squad():
     assert dist(g.x, g.y, cx, cy) < AI["guard"]["wall_gap"] * 1.8
 
 
-def test_a_guard_rams_when_an_ally_is_hurt_and_warns_first():
+def guard_fight(seconds: float, squad_size: int, hurt_guard: bool = False):
+    """A guard with a squad, you sitting still and unkillable. Returns what happened, frame by frame."""
     st = stage()
     battle = Battle(st, seed=2)
-    members = squad(st, battle, 4)
+    members = squad(st, battle, squad_size)
     g = battle.add("guard", C[0], C[1] + 160, warp=False)
     g.brain.cooldown = 0.0
-    run(st, 0.5, battle)
-    victim = min(members, key=lambda m: dist(m.x, m.y, g.x, g.y))
-    victim.x, victim.y = g.x + 20, g.y
-    st.damage_enemy(victim, victim.max_health * 0.8, victim.x, victim.y)
-    saw_lane = False
-    rammed = False
-    hit = False
+    if hurt_guard:
+        st.damage_enemy(g, g.max_health * 0.8, g.x, g.y)
+    st.shield = st.shield_max = 10 ** 6
+    frames = []
+    for _ in range(round(seconds / DT)):
+        st.recentre()
+        battle.step(DT)
+        st.step(DT)
+        frames.append((list(st.events), [ln for ln in st.lanes if ln.kind == "ram"], g.brain.state))
+        st.events = []
+    return st, battle, g, members, frames
+
+
+def test_a_guard_holds_the_wall_while_its_squad_can_fight():
+    st, battle, g, members, frames = guard_fight(8.0, 4, hurt_guard=True)
+    assert not any(("ram", "guard") in ev for ev, _, _ in frames)
+    assert all(state == "wall" for _, _, state in frames)
+
+
+def test_a_guard_rams_once_its_squad_is_down_to_a_couple_and_warns_first():
+    st, battle, g, members, frames = guard_fight(0.5, 4)
+    for m in members[:4 - AI["guard"]["ram_when_left"]]:
+        st.damage_enemy(m, 1000, m.x, m.y)
+    saw_lane = rammed = hit = False
     for _ in range(round(4.0 / DT)):
         st.recentre()
         battle.step(DT)
@@ -288,12 +347,40 @@ def test_a_guard_rams_when_an_ally_is_hurt_and_warns_first():
     assert not g.ramming
 
 
+def test_a_guard_keeps_aiming_through_the_warning_then_locks():
+    st = stage()
+    battle = Battle(st, seed=2)
+    g = battle.add("guard", C[0], C[1] + 120, warp=False)      # no squad: it rams when you are close
+    g.brain.cooldown = 0.0
+    st.shield = st.shield_max = 10 ** 6
+    spec, cfg = ENEMIES["guard"], AI["guard"]
+    while g.brain.state != "warn":
+        battle.step(DT)
+        st.step(DT)
+    start = g.heading
+    # Slide sideways through the warning.
+    headings, locked = [], []
+    while g.brain.state == "warn":
+        st.ship.x += 120 * DT
+        battle.step(DT)
+        st.step(DT)
+        lane = g.brain.lane
+        if lane is not None:
+            headings.append(lane.heading)
+            locked.append(lane.locked)
+    assert abs(headings[-1] - start) > 10              # it followed you
+    n_locked = sum(locked)
+    assert n_locked == pytest.approx(cfg["lock_time"] / DT, abs=2)
+    assert len(set(round(h, 3) for h, lk in zip(headings, locked) if lk)) == 1    # and then held still
+    assert locked[-1] and not locked[0]
+    assert spec["warn_time"] > cfg["lock_time"]
+
+
 def test_a_guard_shot_down_mid_warning_takes_its_lane_away():
     st = stage()
     battle = Battle(st, seed=2)
-    g = battle.add("guard", C[0], C[1] + 100, warp=False)
+    g = battle.add("guard", C[0], C[1] + 100, warp=False)      # no squad and you close: it rams
     g.brain.cooldown = 0.0
-    g.brain.alert = 5.0
     for _ in range(round(2.0 / DT)):
         battle.step(DT)
         st.step(DT)
@@ -303,6 +390,17 @@ def test_a_guard_shot_down_mid_warning_takes_its_lane_away():
     st.damage_enemy(g, 10 ** 6, g.x, g.y)
     run(st, 0.1, battle)
     assert not st.lanes
+
+
+def test_guards_share_out_the_squads_width():
+    st = stage()
+    battle = Battle(st, seed=2)
+    battle.add_group("infantry", 5, C[0], C[1] + 300, "line", warp=False)
+    guards = [battle.add("guard", C[0] - 30 + 60 * i, C[1] + 250, warp=False) for i in range(2)]
+    st.shield = st.shield_max = 10 ** 6
+    run(st, 12.0, battle)
+    gap = dist(guards[0].x, guards[0].y, guards[1].x, guards[1].y)
+    assert gap > AI["guard"]["spacing"] * 1.5          # spread across the line, not bunched up
 
 
 def test_rapid_ships_wait_behind_you_then_dive_and_fire_a_burst():
@@ -330,6 +428,53 @@ def test_enemies_steer_round_rocks():
         e.brain.fly(DT)
         st.step(DT)
     assert dist(e.x, e.y, C[0] + 1, C[1] + 70) < 4
+
+
+def test_an_enemy_wedged_in_rocks_notices_and_breaks_loose():
+    # A pocket of rocks open to the south, with the goal straight through its back wall.
+    rocks = [(C[0], C[1] + 60, 44), (C[0] - 34, C[1] + 40, 44), (C[0] + 34, C[1] + 40, 44),
+             (C[0] - 46, C[1] + 6, 44), (C[0] + 46, C[1] + 6, 44)]
+    st = stage(rocks)
+    battle = Battle(st, seed=1)
+    e = battle.add("infantry", C[0], C[1] + 15, warp=False)
+    e.brain.goal = (C[0], C[1] + 140)
+    stuck = 0
+    for _ in range(round(9 / DT)):
+        e.brain.fly(DT)
+        st.step(DT)
+        stuck += sum(1 for ev in st.events if ev == ("stuck", "infantry"))
+        st.events = []
+    assert 1 <= stuck <= 3
+    assert dist(e.x, e.y, *e.brain.goal) < 12          # out of the pocket and round to the goal
+
+
+def test_an_enemy_flying_freely_is_never_called_stuck():
+    st = stage([(C[0] + 60, C[1] + 70, 40)])
+    battle = Battle(st, seed=1)
+    e = battle.add("infantry", C[0], C[1], warp=False)
+    stuck = 0
+    for k in range(round(8 / DT)):
+        if k % 120 == 0:                                # a new goal every two seconds, round the rock
+            e.brain.goal = (C[0] + 120 * (1 if k % 240 else -1), C[1] + 140)
+        e.brain.fly(DT)
+        st.step(DT)
+        stuck += sum(1 for ev in st.events if ev[0] == "stuck")
+        st.events = []
+    assert stuck == 0
+
+
+def test_formation_slots_inside_a_rock_are_moved_out():
+    st = stage()
+    battle = Battle(st, seed=1)
+    members = squad(st, battle, 3)
+    sq = battle.squads[0]
+    sq.plan()
+    x, y = members[1].brain.goal
+    st.field.add(x, y, 40, 0, False)
+    sq.plan()
+    for m in members:
+        gx, gy = m.brain.goal
+        assert dist(gx, gy, x, y) >= st.field.r[0] + m.body_r - 0.5
 
 
 # ---------------------------------------------------------------- waves

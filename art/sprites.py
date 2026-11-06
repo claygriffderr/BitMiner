@@ -246,9 +246,12 @@ def laser_player(length: int = 120, frame: int = 0) -> Image.Image:
     d.rectangle([2, 0, w - 3, length - 1], fill=rgba("ion_hi"))
     d.rectangle([3, 0, w - 4, length - 1], fill=rgba("ion_white"))
     a = np.array(img)
+    # The tip tapers to a point. A beam cut very short (by a rock right on the nose) keeps what fits.
     a[:3, :, 3] = 0
-    a[3, [0, 1, 7, 8], 3] = 0
-    a[4, [0, 8], 3] = 0
+    if length > 3:
+        a[3, [0, 1, 7, 8], 3] = 0
+    if length > 4:
+        a[4, [0, 8], 3] = 0
     return Image.fromarray(a)
 
 

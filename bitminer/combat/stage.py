@@ -1207,10 +1207,25 @@ class Stage:
         self.beams = keep
 
     def _beam_reach(self, b: Beam, fx: float, fy: float) -> None:
+        """How far the beam gets. Rocks stop any beam, and the mothership's hull stops yours; every
+        other hull it simply burns straight through."""
         b.reach = b.length
+        if b.owner == "player":
+            for e in self.enemies:
+                if e.kind != "mothership" or not e.targetable:
+                    continue
+                r = shapes.radius_of(e.mask)
+                if not self._segment_near(b.x, b.y, b.x + fx * b.reach, b.y + fy * b.reach, e.x, e.y, r + b.width):
+                    continue
+                d = max(0.0, (e.x - b.x) * fx + (e.y - b.y) * fy - r - b.width)
+                while d <= b.reach:
+                    if shapes.hits(e.mask, e.x, e.y, e.sprite_angle, b.x + fx * d, b.y + fy * d, b.width / 2):
+                        b.reach = d + 1.0
+                        break
+                    d += 1.5
         if self.field is None:
             return
-        hit = self.rock_hit(b.x, b.y, b.x + fx * b.length, b.y + fy * b.length, b.width / 2 - 1)
+        hit = self.rock_hit(b.x, b.y, b.x + fx * b.reach, b.y + fy * b.reach, b.width / 2 - 1)
         if hit is not None:
             b.reach = max(0.0, dist(b.x, b.y, hit[0], hit[1]))
             if b.firing and self.rng.random() < 0.5:

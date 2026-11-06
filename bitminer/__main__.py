@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 import traceback
 from pathlib import Path
 
@@ -41,7 +42,10 @@ def _report_crash(dialog: bool = True) -> None:
     base = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path.cwd()
     log = base / "bitminer_error.log"
     try:
-        log.write_text(text)
+        # Keep every crash, newest last, so two in a row don't overwrite each other.
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(f"--- {stamp} ---\n{text}\n")
     except OSError:
         log = None
     if sys.stderr:
