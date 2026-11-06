@@ -25,4 +25,7 @@ _COMBAT = json.loads(COMBAT_FILE.read_text(encoding="utf-8"))
 AI: dict[str, dict] = _COMBAT["ai"]
 WAVES: dict = _COMBAT["waves"]
 SANDBOX: dict = _COMBAT["sandbox"]
+HUNT: dict = _COMBAT["hunt"]
+FLEET: dict = _COMBAT["fleet"]
+MINES: dict = _COMBAT["mines"]
 PLAYDATA: dict = _COMBAT["playdata"]

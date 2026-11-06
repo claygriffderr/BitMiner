@@ -1,10 +1,12 @@
-"""Render check for the built game: fly the scripted route, fight in the sandbox, play a gallery scene,
+"""Render check for the built game: fly the scripted route, fight in the sandbox, play Secure the Base
+and a gallery scene,
 and report what it drew.
 
 GitHub's Windows build machines have no graphics card, and Windows alone only offers OpenGL 1.1
 there, so this borrows Mesa's software OpenGL (llvmpipe) from the mesa-dist-win project and puts
 it next to a copy of the game. Then it runs each scripted check (the flight test's --smoke route,
-a short fight in the combat sandbox on auto pilot, then the mothership laser scene in the weapon gallery) and prints everything needed to judge the
+a short fight in the combat sandbox on auto pilot, half a minute of Secure the Base on auto pilot, then
+the mothership laser scene in the weapon gallery) and prints everything needed to judge the
 result from the build log alone: the game's progress notes, any crash log, and for each
 screenshot a grid of average colours, plus a small thumbnail of the last one in base64.
 
@@ -33,10 +35,11 @@ MESA_TRIES = 4      # newest releases to try, in case the newest is packed diffe
 RUNS = {
     "flight": ["--mode", "flight", "--smoke", "4", "--shots", "1.5,3.5", "--size", "1280x720"],
     "sandbox": ["--mode", "sandbox", "--smoke", "12", "--shots", "8,11.5", "--size", "1280x720"],
+    "campaign": ["--mode", "campaign", "--smoke", "32", "--shots", "12,31.5", "--size", "1280x720"],
     "gallery": ["--mode", "gallery", "--scene", "mothership_laser-shield_breaks", "--smoke", "5",
                 "--shots", "3.5,4.5", "--size", "1280x720"],
 }
-TIMEOUT = 180       # seconds; the route takes well under a minute with software OpenGL
+TIMEOUT = 240       # seconds; each run takes well under that with software OpenGL
 GRID = (16, 9)      # average colours printed for each screenshot
 THUMB = (320, 180)
 CHUNK = 4000        # base64 characters per log line

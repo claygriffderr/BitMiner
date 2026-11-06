@@ -1,7 +1,7 @@
 """The game window: settings, the shared renderer and tuning panel, and the screens you move between.
 
 The window starts on the menu (or straight into a mode with --mode), and each screen is an
-Arcade View: the menu, the flight test and the weapon gallery. Keys that work everywhere (full
+Arcade View: the menu, the flight test, the combat sandbox, Secure the Base and the weapon gallery. Keys that work everywhere (full
 screen, CRT filter, the tuning panel) and scripted runs for the build machine live here.
 """
 
@@ -90,7 +90,7 @@ class GameWindow(arcade.Window):
     # ------------------------------------------------------------ screens
 
     def go(self, name: str) -> None:
-        """Show a screen by name: menu, flight, sandbox or gallery. Each is built the first time."""
+        """Show a screen by name: menu, flight, sandbox, campaign or gallery. Each is built the first time."""
         if name == "quit":
             self.close()
             return
@@ -105,6 +105,9 @@ class GameWindow(arcade.Window):
             elif name == "sandbox":
                 from .views.sandbox import SandboxView
                 view = SandboxView(self)
+            elif name == "campaign":
+                from .views.campaign import CampaignView
+                view = CampaignView(self)
             else:
                 from .views.gallery import GalleryView
                 view = GalleryView(self)

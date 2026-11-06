@@ -37,6 +37,7 @@ class Tuning:
     camera_lead: float = _start("camera_lead")    # How far the camera looks ahead of the ship, 0 to 1.
     camera_aim: float = _start("camera_aim")      # In a fight, how far the view leans toward the mouse.
     shake: float = _start("shake")                # Screen shake strength on impacts.
+    map_size: float = _start("map_size")          # Secure the Base map, times the sandbox each way. Used on a new game.
 
     def clamped(self) -> "Tuning":
         values = {}
@@ -76,6 +77,8 @@ class SliderSpec:
     def text(self, value: float) -> str:
         if self.key == "damper" and value == 0:
             return "OFF"
+        if self.key == "map_size":
+            return f"{value:.0f}X"
         if self.step >= 1:
             return f"{value:.0f}"
         if self.step >= 0.1 - 1e-9:

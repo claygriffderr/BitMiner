@@ -75,6 +75,7 @@ class Enemy:
     ramming: bool = False        # a guard mid-dash: its ram does the hitting, not its hull
     age: float = 0.0
     brain: object = None         # what flies it in a real fight
+    immune: bool = False         # hits spark off it but do no damage (the mothership, until it can fight back)
 
     @property
     def mass(self) -> float:
@@ -260,6 +261,29 @@ class Lane:
 
 # ---------------------------------------------------------------- the stage
 
+@dataclass
+class Structure:
+    """Something of yours that sits still and can be shot at: a mine on an asteroid, or home base."""
+    kind: str                    # "mine" or "base"
+    x: float
+    y: float
+    radius: float                # enemy shots within this of the centre hit it
+    health: float
+    max_health: float
+    uid: int = 0
+    rock: int = -1               # a mine's asteroid
+    immune: bool = False         # shots spark off it but do no damage
+    alive: bool = True
+    flash: float = 0.0
+    since_hit: float = 99.0
+    clock: float = 0.0
+    ore_left: float = 0.0        # a mine: ore still in its asteroid
+    ore_max: float = 0.0
+    hold: float = 0.0            # a mine: ore dug out and waiting for you to pick it up
+    hold_max: float = 0.0
+    side: float = 0.0            # a mine: which way it faces out from its asteroid (heading, degrees)
+
+
 class Stage:
     def __init__(self, sparks, smoke, seed: int = 1):
         """`sparks` and `smoke` are particle systems (anything with `burst` and `emit`)."""
@@ -285,6 +309,7 @@ class Stage:
         self.chunks: list[Chunk] = []
         self.streaks: list[Streak] = []
         self.lanes: list[Lane] = []
+        self.structures: list[Structure] = []
         self.timeline: list[tuple[float, Callable]] = []
         self.kick = 0.0              # screen shake waiting for the camera
         self.screen_flash = 0.0
@@ -310,7 +335,7 @@ class Stage:
 
     def clear(self) -> None:
         for name in ("enemies", "shots", "missiles", "beams", "anims", "rings", "chunks", "streaks",
-                     "lanes", "timeline"):
+                     "lanes", "structures", "timeline"):
             getattr(self, name).clear()
         self.screen_flash = 0.0
         self.ship_flash = 0.0
@@ -355,7 +380,7 @@ class Stage:
             dx, dy = shift(e)
             if (dx or dy) and e.brain is not None and hasattr(e.brain, "moved"):
                 e.brain.moved(dx, dy)
-        for group in (self.shots, self.missiles, self.anims, self.rings, self.chunks, self.lanes):
+        for group in (self.shots, self.missiles, self.anims, self.rings, self.chunks, self.lanes, self.structures):
             for o in group:
                 shift(o)
         for b in self.beams:
@@ -558,6 +583,10 @@ class Stage:
         `source` is what did it (auto, sniper, missile, laser, ram), for the play log."""
         if not e.targetable:
             return
+        if e.immune:
+            e.flash = max(e.flash, flash * 0.5)
+            e.since_hit = 0.0
+            return
         amount = min(amount, e.health)
         e.health -= amount
         e.flash = max(e.flash, flash)
@@ -574,6 +603,29 @@ class Stage:
             return
         e.vx += vx / e.mass
         e.vy += vy / e.mass
+
+    def damage_structure(self, t: Structure, amount: float, x: float, y: float, source: str = "") -> None:
+        """An enemy hit one of your mines (or your base)."""
+        if not t.alive:
+            return
+        t.flash = 1.0
+        t.since_hit = 0.0
+        if t.immune:
+            return
+        amount = min(amount, t.health)
+        t.health -= amount
+        self.events.append(("struct_hit", t.kind, t.uid, amount, source))
+        if t.health <= 0:
+            t.health = 0.0
+            t.alive = False
+            self.events.append(("struct_lost", t.kind, t.uid))
+            self.anims.append(Anim("explosion", ("player", 49, t.uid % 3), 6, 12, t.x, t.y))
+            self.anims.append(Anim("explosion", ("player", 33, 1), 6, 14, t.x + 6, t.y - 4, delay=0.15))
+            self.rings.append(Ring("player", t.x, t.y, 6, 36, 0.4))
+            for _ in range(6):
+                self._chunk("steel", t.x, t.y, 30, 110)
+            self.sparks.burst("ion_spark", t.x, t.y, 0.0, math.pi, 20, (30, 120), (0.3, 0.7))
+            self.smoke.burst("smoke", t.x, t.y, 0.0, math.pi, 14, (10, 50), (0.6, 1.2))
 
     def damage_player(self, amount: float, x: float, y: float, kind: str = "shot", push: float = 0.0,
                       source: str = "") -> str:
@@ -789,6 +841,11 @@ class Stage:
             e.vx *= keep
             e.vy *= keep
         self.enemies = [e for e in self.enemies if e.alive]
+        for t in self.structures:
+            t.clock += dt
+            t.since_hit += dt
+            t.flash = max(0.0, t.flash - dt * 8)
+        self.structures = [t for t in self.structures if t.alive]
         if self.collide_bodies:
             self._separate_enemies()
             if self.ship_visible:
@@ -1048,6 +1105,15 @@ class Stage:
         self.damage_enemy(e, s.damage, x, y, flash=1.0 if s.kind == "sniper" else 0.55, source=s.kind)
 
     def _enemy_shot_hits(self, s: Shot, x0: float, y0: float) -> bool:
+        for t in self.structures:
+            if t.alive and self._segment_near(x0, y0, s.x, s.y, t.x, t.y, t.radius + s.pad):
+                back = math.atan2(-s.vy, -s.vx)
+                ux, uy, d = s.x - t.x, s.y - t.y, max(1e-6, math.hypot(s.x - t.x, s.y - t.y))
+                px, py = t.x + ux / d * t.radius, t.y + uy / d * t.radius
+                self.anims.append(Anim("flare", ("danger",), 2, 20, px, py))
+                self.sparks.burst("danger_spark", px, py, back, 0.9, 3, (20, 70), (0.1, 0.3))
+                self.damage_structure(t, s.damage, px, py, source=s.kind)
+                return False
         ship = self.ship
         if not self.ship_visible:
             return True
@@ -1223,6 +1289,17 @@ class Stage:
                         b.reach = d + 1.0
                         break
                     d += 1.5
+            for t in self.structures:
+                if t.kind != "base" or not t.alive:
+                    continue
+                # Your own base stops your laser too.
+                along = (t.x - b.x) * fx + (t.y - b.y) * fy
+                side = abs((t.x - b.x) * fy - (t.y - b.y) * fx)
+                R = t.radius + b.width / 2
+                if side < R and along + R > 0:
+                    d = max(0.0, along - math.sqrt(max(0.0, R * R - side * side)))
+                    if d < b.reach:
+                        b.reach = d
         if self.field is None:
             return
         hit = self.rock_hit(b.x, b.y, b.x + fx * b.reach, b.y + fy * b.reach, b.width / 2 - 1)

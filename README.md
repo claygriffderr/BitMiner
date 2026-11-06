@@ -15,15 +15,17 @@ Early development, built in short sprints with a playable or reviewable demo at 
 2. Flight test
 3. Weapon effects gallery
 4. Combat
-5. Full game loop
-6. Adaptive AI
-7. Polish and share
+5. Map, mines and the hunt
+6. Base, shop and the full loop
+7. Adaptive AI
+8. Polish and share
 
 ## Play it
 
-Windows: download `BitMiner-CombatSandbox-windows.zip` from the
-[combat-sandbox release](https://github.com/claygriffderr/BitMiner/releases/tag/combat-sandbox), unzip it
+Windows: download `BitMiner-SecureTheBase-windows.zip` from the
+[secure-the-base release](https://github.com/claygriffderr/BitMiner/releases/tag/secure-the-base), unzip it
 and run `BitMiner.exe`. Each push to a sprint branch rebuilds it. (Earlier sprints stay on the
+[combat-sandbox](https://github.com/claygriffderr/BitMiner/releases/tag/combat-sandbox),
 [weapon-gallery](https://github.com/claygriffderr/BitMiner/releases/tag/weapon-gallery) and
 [flight-test](https://github.com/claygriffderr/BitMiner/releases/tag/flight-test) releases.)
 
@@ -32,12 +34,22 @@ From source (Python 3.13):
 ```
 pip install -r requirements.txt
 python -m bitminer                       # the menu
+python -m bitminer --mode campaign       # straight into Secure the Base
 python -m bitminer --mode sandbox        # straight into the combat sandbox
 python -m bitminer --mode gallery        # straight into the weapon gallery
 ```
 
-The menu leads to the flight test, the combat sandbox and the weapon gallery; Esc goes back to it.
+The menu leads to Secure the Base, the flight test, the combat sandbox and the weapon gallery; Esc
+goes back to it.
 
+- Secure the Base: the game itself, so far. A wrap-around map ten times the sandbox each way (the
+  MAP SIZE slider changes it on a new game), home base where you start and the mothership across
+  the map. F sets a mine on an ore asteroid next to you; mines dig until the asteroid runs dry or
+  enemies destroy them, you fly over them to load ore and sell it at home base. Enemies only know
+  where you are while one of them can see you: then they all do, and when they lose you they
+  search where you were last seen, then go home. They raid mines they come across. Each wave
+  launches once only a few of the last are still out. Dim arrows at the screen edge point at home
+  base and each mine, with the mine's health and ore beside it.
 - Combat sandbox: wave after wave of infantry squads, guards and rapid assault ships in the asteroid
   field. WASD flies, the mouse aims, click fires, 1 to 4 (or the mouse wheel, Q and E) picks the
   weapon, N calls the next wave early, P pauses, Backspace starts a fresh fight. Going down costs
@@ -51,7 +63,9 @@ The menu leads to the flight test, the combat sandbox and the weapon gallery; Es
 
 Starting values for the sliders live in `bitminer/data/tuning.json`, every weapon, enemy and
 defense number in `bitminer/data/weapons.json`, and how enemies fight and when waves arrive in
-`bitminer/data/combat.json`, so none of them are fixed in code. Each sandbox fight is also written
+`bitminer/data/combat.json` (with mines, the mothership's waves and how enemies search in its `mines`,
+`fleet` and `hunt` blocks), and the big map in `bitminer/data/map.json`, so none of them are fixed in
+code. Each game or sandbox fight is also written
 to a `playdata` folder next to the settings file, for the adaptive AI to learn from later.
 
 ## Tech
@@ -60,14 +74,16 @@ Python with the [Arcade](https://api.arcade.academy/) library, rendered at 640×
 with pixel-perfect integer scaling.
 
 - `bitminer/flight.py`: the ship's flight model (mass, boosters, turning, damper, soft speed cap)
-- `bitminer/field.py`: the wrap-around asteroid field and its collisions
+- `bitminer/field.py`: the wrap-around asteroid field, its collisions and a grid for quick lookups
+- `bitminer/sector.py`: the big map's layout and the belts, clusters and rocks that fill it
 - `bitminer/graphics/`: the renderer (outline after rotation, bloom, parallax backdrop, CRT filter)
 - `bitminer/combat/`: the combat simulation (shots, missiles, beams, hits, shields, explosions,
-  bumping), the enemy brains and waves (`ai.py`), your weapons (`arsenal.py`) and the sandbox
-  without graphics (`sandbox.py`)
+  bumping), the enemy brains and waves (`ai.py`), what the enemy knows and the mothership's waves
+  (`hunt.py`), your weapons (`arsenal.py`), and the sandbox and Secure the Base without graphics
+  (`sandbox.py`, `campaign.py`)
 - `bitminer/playdata.py`: the play log
 - `bitminer/gallery/`: the weapon gallery's scenes and the director that plays them
-- `bitminer/views/`: the menu, flight test, combat sandbox and gallery screens
+- `bitminer/views/`: the menu, Secure the Base, flight test, combat sandbox and gallery screens
 - `bitminer/ui/`: the tuning panel and HUDs, in the pixel font
 - `bitminer/settings.py`: the tuning sliders and where your settings are saved
 

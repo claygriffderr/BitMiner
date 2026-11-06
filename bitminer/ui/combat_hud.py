@@ -172,9 +172,9 @@ class CombatHud:
         self.alert_back = None
         self.alert = self.text.label("", VIEW_W // 2, VIEW_H - 25 - 11, "danger_pink_hi", "center")
 
-    def _build_help(self) -> None:
+    def _build_help(self, help_line=None) -> None:
         x = 8
-        for key, what in HELP:
+        for key, what in help_line or HELP:
             self.text.label(key, x, 5, "hud_text", shadow="console_black")
             x += text_width(key) + 1
             if what.strip():
@@ -195,6 +195,11 @@ class CombatHud:
 
     def update(self, dt: float, sb) -> None:
         """Show the state of `sb`, a Sandbox."""
+        self._update_console(sb)
+        self._update_top(dt, sb)
+        self._update_centre(sb)
+
+    def _update_console(self, sb) -> None:
         st = sb.stage
         arsenal = sb.arsenal
         weapon = arsenal.weapon
@@ -231,7 +236,8 @@ class CombatHud:
         self.ship_icon.alpha = 90 if st.ship_down else (120 if st.invulnerable > 0 and int(st.time * 10) % 2 else 255)
         self.downs.set(f"DOWNS {sb.downs}")
 
-        # Top bar.
+    def _update_top(self, dt: float, sb) -> None:
+        st = sb.stage
         self.kills.set(str(sb.kills))
         alive = sum(1 for e in st.enemies if e.alive and e.dying < 0)
         self.alive.set(str(alive))
@@ -255,7 +261,8 @@ class CombatHud:
         if self.alert_back is not None:
             self.alert_back.visible = show
 
-        # Centre.
+    def _update_centre(self, sb) -> None:
+        st = sb.stage
         if st.ship_down:
             self.centre.set("SHIP DOWN")
             self.centre_sub.set(f"BACK IN {max(0.0, sb.respawn_in):.1f}")

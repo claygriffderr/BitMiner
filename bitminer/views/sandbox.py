@@ -26,6 +26,9 @@ BLINK_HZ = 12             # how fast your ship blinks while it can't be hit
 
 
 class SandboxView(arcade.View):
+    HUD = CombatHud
+    MODE = "sandbox"
+
     def __init__(self, window):
         super().__init__(window)
         tex = window.textures
@@ -34,7 +37,7 @@ class SandboxView(arcade.View):
         self.smoke = Particles(tex.pixel, (3200.0, 2000.0), capacity=1800)
         self.drawer = StageDrawer(tex.pixel)
         self.camera = FollowCamera()
-        self.hud = CombatHud(tex)
+        self.hud = self.HUD(tex)
         self.rng = random.Random(5)
         self.puff: dict = {}
         self.down: set[int] = set()
@@ -52,7 +55,7 @@ class SandboxView(arcade.View):
     def new_fight(self) -> None:
         if self.sb is not None and self.log is not None:
             self.log.close(self.sb)
-        self.sb = Sandbox(self.sparks, self.smoke, self.window.settings.tuning)
+        self.sb = self.make_game()
         self.sparks.alive[:] = False
         self.smoke.alive[:] = False
         self.camera.reset()
@@ -61,6 +64,9 @@ class SandboxView(arcade.View):
         if self.window.current_view is self:
             self.window.renderer.set_field(self.sb.world.field)
 
+    def make_game(self):
+        return Sandbox(self.sparks, self.smoke, self.window.settings.tuning)
+
     def _open_log(self):
         from ..combat.specs import PLAYDATA
         args = self.args
@@ -68,7 +74,7 @@ class SandboxView(arcade.View):
             return None             # scripted runs leave no files behind
         from ..playdata import PlayLog
         tuning = self.window.settings.tuning
-        meta = {"mode": "sandbox", "seed": self.sb.world.field.seed,
+        meta = {"mode": self.MODE, "seed": self.sb.world.field.seed,
                 "tuning": {k: getattr(tuning, k) for k in vars(tuning)}}
         return PlayLog(self.window.settings_path.parent / "playdata", meta)
 
@@ -173,14 +179,9 @@ class SandboxView(arcade.View):
         sb = self.sb
         st = sb.stage
         self.clock += dt
-        if self.args.smoke:
-            controls, trigger, cursor = autopilot(sb, self.clock)
-        else:
-            controls = self.controls()
-            trigger = self.trigger and not w.over_panel()
-            cursor = self.cursor_world()
+        controls, trigger, cursor = self.pilot()
         self._controls = controls if not st.ship_down else Controls()
-        events = sb.step(dt, controls, trigger, cursor)
+        events = self.step_game(dt, controls, trigger, cursor)
         if self.log is not None:
             self.log.record(dt, events, sb)
         if not st.ship_down:
@@ -200,11 +201,25 @@ class SandboxView(arcade.View):
         self.flame_clock += dt
         self.hud.update(dt, sb)
         self.hud.set_fps(w.fps)
-        cx, cy = self.view_centre()
-        half = (VIEW[0] / 2 + 4, VIEW[1] / 2 + 4)
-        self.hud.place_arrows([(e.x - cx, e.y - cy, e.kind, d) for e, d in sb.offscreen((cx, cy), half)])
+        self.place_arrows()
         over_ui = w.panel.contains(*w.mouse)
         self.hud.set_cursor(*w.mouse, over_ui, w.mouse_inside or bool(self.args.smoke))
+
+    def pilot(self):
+        """Controls, trigger and cursor for this frame: yours, or the autopilot's in a scripted run."""
+        if self.args.smoke:
+            return autopilot(self.sb, self.clock)
+        w = self.window
+        return self.controls(), self.trigger and not w.over_panel(), self.cursor_world()
+
+    def step_game(self, dt: float, controls: Controls, trigger: bool, cursor) -> list:
+        return self.sb.step(dt, controls, trigger, cursor)
+
+    def place_arrows(self) -> None:
+        """Arrows at the screen edge toward enemies just off screen."""
+        cx, cy = self.view_centre()
+        half = (VIEW[0] / 2 + 4, VIEW[1] / 2 + 4)
+        self.hud.place_arrows([(e.x - cx, e.y - cy, e.kind, d) for e, d in self.sb.offscreen((cx, cy), half)])
 
     def frame(self) -> FrameView:
         w = self.window

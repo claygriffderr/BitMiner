@@ -117,3 +117,53 @@ def test_near_finds_rocks_around_a_point_across_the_seam():
     idx, dx, dy = f.near(W - 10, H - 10, 50, 50)
     assert idx.tolist() == [0]
     assert dx[0] == pytest.approx(15) and dy[0] == pytest.approx(15)
+
+
+# ---------------------------------------------------------------- the lookup grid
+
+def brute_near(f, x, y, hw, hh):
+    reach = f.size / 2 + 4
+    dx = wrap_delta(f.x - x, f.width)
+    dy = wrap_delta(f.y - y, f.height)
+    return set(np.nonzero((np.abs(dx) <= hw + reach) & (np.abs(dy) <= hh + reach))[0].tolist())
+
+
+def test_grid_lookups_match_a_full_scan_everywhere_including_the_seam():
+    f = AsteroidField.flight_test(W, H, seed=3)
+    rng = np.random.default_rng(1)
+    spots = [(0.0, 0.0), (W - 1, H - 1), (W / 2, 0.5), (5.0, H / 2)]
+    spots += [(float(rng.uniform(0, W)), float(rng.uniform(0, H))) for _ in range(200)]
+    for x, y in spots:
+        for hw, hh in ((4, 4), (60, 20), (300, 300)):
+            idx, dx, dy = f.near(x, y, hw, hh)
+            assert set(idx.tolist()) == brute_near(f, x, y, hw, hh)
+            assert np.allclose(dx, wrap_delta(f.x[idx] - x, W))
+            assert np.allclose(dy, wrap_delta(f.y[idx] - y, H))
+
+
+def test_rocks_are_refiled_when_they_move():
+    f = AsteroidField.flight_test(W, H, seed=3)
+    # Shove a handful of rocks hard, across the seam too, and let them drift and bump.
+    for i in range(0, 60, 6):
+        f.vx[i], f.vy[i] = 400.0, -300.0
+    for _ in range(240):
+        f.step(1 / 60)
+    for x, y in [(float(f.x[i]), float(f.y[i])) for i in range(0, 60, 6)]:
+        assert set(f.near(x, y, 40, 40)[0].tolist()) == brute_near(f, x, y, 40, 40)
+    # Every rock is filed under exactly the cell it sits in.
+    filed = sorted(i for cell in f._grid.values() for i in cell)
+    assert filed == list(range(len(f)))
+    for i in range(len(f)):
+        assert f._cell[i] == f._key(f.x[i], f.y[i])
+
+
+def test_the_ship_pushing_a_rock_refiles_it():
+    f = lone_rock(64.0, 64.0, size=32)
+    ship = Ship(64.0 - 40, 64.0)
+    ship.vx = 600.0
+    for _ in range(120):
+        ship.x += ship.vx / 120
+        f.collide_ship(ship, 4.0, 0.5)
+        f.step(1 / 120)
+    assert f._cell[0] == f._key(f.x[0], f.y[0])
+    assert 0 in f.near(float(f.x[0]), float(f.y[0]), 1, 1)[0]
