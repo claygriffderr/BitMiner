@@ -1,5 +1,5 @@
 """A quick check that needs no window: build every picture, fly the ship, play some gallery
-scenes, save and load settings.
+scenes, fight in the combat sandbox, save and load settings.
 
 The Windows build runs this on the build machine (`BitMiner.exe --selftest`) to prove that
 everything it needs made it into the package.
@@ -77,6 +77,23 @@ def run() -> int:
             if director.finished:
                 break
         assert director.finished, f"gallery scene {key} never finished"
+
+    # The combat sandbox: half a minute of fighting on auto pilot, with a play log.
+    from .combat.sandbox import Sandbox, autopilot
+    from .playdata import PlayLog
+
+    sb = Sandbox(Quiet(), Quiet(), settings.Tuning())
+    with tempfile.TemporaryDirectory() as d:
+        log = PlayLog(Path(d), {"mode": "selftest"})
+        t = 0.0
+        for _ in range(60 * 30):
+            controls, trigger, cursor = autopilot(sb, t)
+            log.record(1 / 60, sb.step(1 / 60, controls, trigger, cursor), sb)
+            t += 1 / 60
+        log.close(sb)
+        assert log.path.exists() and log.path.stat().st_size > 0, "the play log was not written"
+    assert sb.waves.number >= 1, "no wave arrived"
+    assert sb.stage.enemies or sb.kills, "the wave never showed up"
 
     # Settings.
     with tempfile.TemporaryDirectory() as d:

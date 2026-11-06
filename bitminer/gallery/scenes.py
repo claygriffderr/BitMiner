@@ -318,6 +318,7 @@ def guard_ram(d: Director) -> Script:
         st.lanes.remove(lane)
         # Charge.
         mode["m"] = "dash"
+        g.ramming = True
         fx, fy = forward_vector(heading)
         travelled = 0.0
         hit = False
@@ -340,6 +341,7 @@ def guard_ram(d: Director) -> Script:
                 break
             yield TICK
         mode["m"] = "recoil"
+        g.ramming = False
         yield 0.45
         for stage_ in (2, 1, 0):
             g.ram = stage_
@@ -349,15 +351,7 @@ def guard_ram(d: Director) -> Script:
 
 
 def _ram_impact(d: Director, g, x: float, y: float, fx: float, fy: float) -> None:
-    spec = ENEMIES["guard"]
-    st = d.stage
-    st.damage_player(spec["ram_damage"], x, y, kind="ram", push=spec["ram_speed"] * 0.45)
-    st.sparks.burst("steel", x, y, math.atan2(-fy, -fx), 1.0, 14, (40, 130), (0.2, 0.5))
-    st.sparks.burst("danger_spark", x, y, math.atan2(fy, fx), 0.9, 8, (30, 100), (0.15, 0.35))
-    st.anims.append(Anim("flare", ("steel",), 2, 18, x, y))
-    st.kick += 0.45
-    # The guard bounces back off you.
-    st.push_enemy(g, -fx * 150 * g.mass, -fy * 150 * g.mass)
+    d.stage.ram_hit(g, x, y, fx, fy)
 
 
 def tank_missiles(shoot_down: bool) -> Callable[[Director], Script]:

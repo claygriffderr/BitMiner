@@ -175,13 +175,17 @@ class StageDrawer:
 
     # ------------------------------------------------------------ the frame
 
-    def sync(self, stage: Stage, k: int) -> None:
+    def sync(self, stage: Stage, k: int, arena=None, arena_glow: float = 0.0) -> None:
+        """`arena` is (left, bottom, right, top): a fence to draw as a dashed line, lit up by
+        `arena_glow` (0 to 1) when something bumps it."""
         self.k = k
         t = stage.time
         A = self.art
         for pool in (self.under, self.hulls, self.over, self.light):
             pool.begin()
         flick = int(t * 30) % 2
+        if arena is not None:
+            self._fence(arena, arena_glow)
 
         # Warning lanes on the ground.
         for lane in stage.lanes:
@@ -189,7 +193,7 @@ class StageDrawer:
             fx, fy = forward_vector(lane.heading)
             cx, cy = lane.x + fx * L / 2, lane.y + fy * L / 2
             if lane.kind == "ram":
-                frame = int(t * 10) % 2
+                frame = int(t * (24 if lane.locked else 10)) % 2     # flashes fast once it locks
                 pair = A.get(("ramlane", L, frame), lambda: S.ram_warning(L, frame))
                 self._put(self.under, pair, cx, cy, lane.heading)
             else:
@@ -256,7 +260,8 @@ class StageDrawer:
         for b in stage.beams:
             fx, fy = forward_vector(b.heading)
             if b.owner == "player":
-                L = int(round(b.length))
+                # Cut short where a rock stops it.
+                L = int(round(b.length)) if b.reach >= b.length else max(2 * LANE_STEP, int(round(b.reach / LANE_STEP)) * LANE_STEP)
                 frame = int(t * 30) % 2
                 pair = A.get(("lsr", L, frame), lambda L=L, f=frame: S.laser_player(L, f))
                 cx, cy = b.x + fx * L / 2, b.y + fy * L / 2
@@ -329,6 +334,27 @@ class StageDrawer:
 
         for pool in (self.under, self.hulls, self.over, self.light):
             pool.end()
+
+    def _fence(self, arena, glow: float) -> None:
+        """A dashed line round the edge of the gallery's free-fly space, one game pixel wide."""
+        left, bottom, right, top = (int(round(v)) for v in arena)
+        lit = glow > 0.02
+        c = rgba("ion_hi" if lit else "console_edge")[:3]
+        alpha = 0.35 + 0.65 * glow if lit else 0.35
+        dash, gap = 6, 6
+
+        def put(cx: float, cy: float, size: tuple[float, float]) -> None:
+            self.under.add(self.pixel, cx, cy, 0.0, alpha, c, size)
+            if lit:
+                self.light.add(self.pixel, cx, cy, 0.0, glow, c, size)
+        for x in range(left, right, dash + gap):
+            n = min(dash, right - x)
+            put(x + n / 2, bottom + 0.5, (n, 1.0))
+            put(x + n / 2, top + 0.5, (n, 1.0))
+        for y in range(bottom, top, dash + gap):
+            n = min(dash, top - y)
+            put(left + 0.5, y + n / 2, (1.0, n))
+            put(right + 0.5, y + n / 2, (1.0, n))
 
     def hull_rect(self, cam_x: float, cam_y: float, k: int, size: tuple[int, int]):
         """The hulls' box on the scene texture, in screen pixels, or None."""

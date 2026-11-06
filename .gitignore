@@ -28,3 +28,6 @@ review/
 flight_tuning.json
 flight_tuning.tmp
 bitminer_error.log
+
+# Fights recorded by the combat sandbox
+playdata/

@@ -90,7 +90,7 @@ class GameWindow(arcade.Window):
     # ------------------------------------------------------------ screens
 
     def go(self, name: str) -> None:
-        """Show a screen by name: menu, flight or gallery. Each is built the first time."""
+        """Show a screen by name: menu, flight, sandbox or gallery. Each is built the first time."""
         if name == "quit":
             self.close()
             return
@@ -102,6 +102,9 @@ class GameWindow(arcade.Window):
             elif name == "flight":
                 from .views.flight import FlightView
                 view = FlightView(self)
+            elif name == "sandbox":
+                from .views.sandbox import SandboxView
+                view = SandboxView(self)
             else:
                 from .views.gallery import GalleryView
                 view = GalleryView(self)
@@ -164,6 +167,9 @@ class GameWindow(arcade.Window):
     def on_close(self):
         if self._save_at is not None:
             self.save_now()
+        for view in self.views.values():
+            if hasattr(view, "shutdown"):
+                view.shutdown()
         super().on_close()
 
     def over_panel(self) -> bool:

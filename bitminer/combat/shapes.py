@@ -73,3 +73,44 @@ def hits(mask: np.ndarray, cx: float, cy: float, sprite_angle: float, px: float,
             if 0 <= col < w and 0 <= row < h and mask[row, col]:
                 return True
     return False
+
+
+@lru_cache(maxsize=None)
+def _points(key) -> np.ndarray:
+    mask = ship_mask() if key == ("ship",) else enemy_mask(*key)
+    h, w = mask.shape
+    rows, cols = np.nonzero(mask)
+    # Pixel centres as (right, up) offsets from the sprite's centre.
+    return np.stack([cols + 0.5 - w / 2, h / 2 - rows - 0.5], axis=1)
+
+
+def mask_points(kind: str | None = None, ram: int = 0) -> np.ndarray:
+    """Every solid pixel of a hull (yours when `kind` is None) as (right, up) offsets from its centre."""
+    return _points(("ship",) if kind is None else (kind, ram))
+
+
+@lru_cache(maxsize=None)
+def _reach(key) -> float:
+    p = _points(key)
+    return float(np.sqrt((p ** 2).sum(axis=1)).max()) + 0.71
+
+
+def reach(kind: str | None = None, ram: int = 0) -> float:
+    """How far the hull's farthest pixel corner sits from its centre: no contact happens beyond it."""
+    return _reach(("ship",) if kind is None else (kind, ram))
+
+
+def hits_many(mask: np.ndarray, cx: float, cy: float, sprite_angle: float, px: np.ndarray,
+              py: np.ndarray) -> np.ndarray:
+    """`hits` for many world points at once, with no padding. Returns a boolean array."""
+    h, w = mask.shape
+    a = math.radians(sprite_angle)
+    dx, dy = px - cx, py - cy
+    lx = dx * math.cos(a) - dy * math.sin(a)
+    ly = dx * math.sin(a) + dy * math.cos(a)
+    col = np.floor(lx + w / 2).astype(int)
+    row = np.floor(h / 2 - ly).astype(int)
+    ok = (col >= 0) & (col < w) & (row >= 0) & (row < h)
+    out = np.zeros(len(px), dtype=bool)
+    out[ok] = mask[row[ok], col[ok]]
+    return out

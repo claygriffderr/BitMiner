@@ -15,7 +15,7 @@ from ..combat.specs import WEAPONS
 from ..combat.stage import Stage
 from ..flight import Controls, angle_to
 from ..gallery import scenes as SC
-from ..gallery.director import Director
+from ..gallery.director import ARENA, Director
 from ..graphics.combat_draw import StageDrawer
 from ..graphics.particles import Particles
 from ..graphics.renderer import VIEW, FrameView
@@ -250,7 +250,12 @@ class GalleryView(arcade.View):
         w = self.window
         st = self.stage
         cx, cy = self.view_centre()
-        self.drawer.sync(st, w.renderer.k)
+        arena = None
+        if not self.director.auto:
+            # The fence your ship's centre stops at, pushed out by the hull so the hull touches it.
+            ax, ay = ARENA[0] + 10, ARENA[1] + 10
+            arena = (CENTRE[0] - ax, CENTRE[1] - ay, CENTRE[0] + ax, CENTRE[1] + ay)
+        self.drawer.sync(st, w.renderer.k, arena, self.director.edge_hit)
         ship = st.ship
         return FrameView(
             cam_x=cx, cam_y=cy, cam_ux=cx, cam_uy=cy,

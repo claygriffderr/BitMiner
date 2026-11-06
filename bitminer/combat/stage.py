@@ -16,6 +16,7 @@ from typing import Callable
 
 from art import sprites as S
 
+from ..field import wrap_delta
 from ..flight import Ship, angle_to, forward_vector, right_vector, wrap_angle
 from . import shapes
 from .specs import DEFENSE, ENEMIES, ENEMY_WEAPONS, WEAPONS
@@ -69,10 +70,20 @@ class Enemy:
     alive: bool = True           # false once the wreck is gone
     fade_in: float = 1.0         # 0 to 1 while warping in
     uid: int = 0
+    mx: float = 0.0              # the steady speed its pilot flies at (vx, vy is only a shove)
+    my: float = 0.0
+    ramming: bool = False        # a guard mid-dash: its ram does the hitting, not its hull
+    age: float = 0.0
+    brain: object = None         # what flies it in a real fight
 
     @property
     def mass(self) -> float:
         return float(ENEMIES[self.kind]["mass"])
+
+    @property
+    def body_r(self) -> float:
+        """A circle for bumping into rocks: a little inside the hull's farthest corner."""
+        return shapes.reach(self.kind, self.ram if self.kind == "guard" else 0) * 0.8
 
     @property
     def sprite_angle(self) -> float:
@@ -149,6 +160,7 @@ class Beam:
     t: float = 0.0
     end: tuple[float, float] = (0.0, 0.0)
     contacts: dict = field(default_factory=dict)   # uid -> (x, y), where the beam meets each hull
+    reach: float = 0.0           # how far it gets before a rock stops it (its length if none does)
 
     @property
     def firing(self) -> bool:
@@ -280,6 +292,19 @@ class Stage:
         self._uid = 0
         self._gun = 0
         self.reload_missiles()
+        # A real fight (the sandbox) turns these on; the gallery leaves them off.
+        self.field = None            # an AsteroidField: rocks block shots, beams and ships
+        self.world = None            # (width, height) when space wraps around
+        self.collide_bodies = False  # your hull bumps enemy hulls
+        self.regen = False           # the shield recharges after a quiet spell
+        self.can_die = False
+        self.ship_mass = float(DEFENSE["mass"])
+        self.bounce = 0.4
+        self.armor = int(DEFENSE.get("armor", 0))
+        self.ship_down = False
+        self.invulnerable = 0.0      # seconds left of the blink after a respawn
+        self.quiet = 99.0            # seconds since you last took damage
+        self.events: list[tuple] = []   # what happened, for the HUD and the play log
 
     # ------------------------------------------------------------ setup
 
@@ -307,6 +332,46 @@ class Stage:
     def uid(self) -> int:
         self._uid += 1
         return self._uid
+
+    def recentre(self) -> None:
+        """In wrapping space, bring everything to its copy nearest your ship, so every distance on
+        the stage is the short way round."""
+        if self.world is None:
+            return
+        W, H = self.world
+        cx, cy = self.ship.x, self.ship.y
+
+        def shift(o, xa="x", ya="y"):
+            x, y = getattr(o, xa), getattr(o, ya)
+            nx = cx + wrap_delta(x - cx, W)
+            ny = cy + wrap_delta(y - cy, H)
+            if nx != x or ny != y:
+                setattr(o, xa, nx)
+                setattr(o, ya, ny)
+                return nx - x, ny - y
+            return 0.0, 0.0
+
+        for e in self.enemies:
+            dx, dy = shift(e)
+            if (dx or dy) and e.brain is not None and hasattr(e.brain, "moved"):
+                e.brain.moved(dx, dy)
+        for group in (self.shots, self.missiles, self.anims, self.rings, self.chunks, self.lanes):
+            for o in group:
+                shift(o)
+        for b in self.beams:
+            dx, dy = shift(b)
+            b.end = (b.end[0] + dx, b.end[1] + dy)
+        for st_ in self.streaks:
+            dx, dy = shift(st_, "x0", "y0")
+            st_.x1 += dx
+            st_.y1 += dy
+
+    def _move_ship(self, dx: float, dy: float) -> None:
+        ship = self.ship
+        ship.x += dx
+        ship.y += dy
+        ship.ux += dx
+        ship.uy += dy
 
     def spawn(self, kind: str, x: float, y: float, heading: float = 180.0, health: float | None = None,
               warp: bool = True) -> Enemy:
@@ -342,6 +407,7 @@ class Stage:
                                w["damage"], w["range"] / speed))
         self.anims.append(Anim("muzzle", ("auto",), 2, 30, x, y, ship.angle,
                                follow=self._ship_follow(right, fwd)))
+        self.events.append(("fire", "auto"))
 
     def fire_sniper(self, heading: float | None = None) -> None:
         w = WEAPONS["sniper"]
@@ -359,6 +425,7 @@ class Stage:
         ship.vy -= fy * 22
         self.sparks.burst("ion_spark", x, y, math.atan2(fy, fx), 0.5, 6, (20, 70), (0.08, 0.2))
         self.kick += 0.12
+        self.events.append(("fire", "sniper"))
 
     def fire_missile(self, target: Enemy | None) -> bool:
         """Launch one missile, from the left and right pods in turn. Missiles leave `gap` seconds
@@ -392,6 +459,7 @@ class Stage:
         self.missile_idle = 0.0
         if self.missiles_loaded <= 0:
             self.missile_reload = float(w["reload"])
+        self.events.append(("fire", "missile"))
         return True
 
     def _step_rack(self, dt: float) -> None:
@@ -411,7 +479,9 @@ class Stage:
         ship = self.ship
         x, y = to_world(ship.x, ship.y, ship.angle, *NOSE)
         beam = Beam("player", x, y, ship.angle, w["length"], 5.0, w["dps"], w["duration"], warmup=w["warmup"])
+        beam.reach = beam.length
         self.beams.append(beam)
+        self.events.append(("fire", "laser"))
         return beam
 
     def _ship_follow(self, right: float, fwd: float):
@@ -446,25 +516,56 @@ class Stage:
             self.anims.append(Anim("flare", ("danger",), 2, 20, x, y))
         tank.pods_loaded = False
 
+    def ram_hit(self, g: Enemy, x: float, y: float, fx: float, fy: float) -> None:
+        """A guard's scoop slams into you at (x, y), travelling along (fx, fy)."""
+        spec = ENEMIES["guard"]
+        self.damage_player(spec["ram_damage"], x, y, kind="ram", push=spec["ram_speed"] * 0.45, source="guard")
+        self.sparks.burst("steel", x, y, math.atan2(-fy, -fx), 1.0, 14, (40, 130), (0.2, 0.5))
+        self.sparks.burst("danger_spark", x, y, math.atan2(fy, fx), 0.9, 8, (30, 100), (0.15, 0.35))
+        self.anims.append(Anim("flare", ("steel",), 2, 18, x, y))
+        self.kick += 0.45
+        # The guard bounces back off you.
+        self.push_enemy(g, -fx * 150 * g.mass, -fy * 150 * g.mass)
+
+    def ram_rock(self, g: Enemy, x: float, y: float, fx: float, fy: float, rock: int) -> None:
+        """A guard's charge ends on a rock: the rock takes the shove and the guard bounces off."""
+        spec = ENEMIES["guard"]
+        f = self.field
+        if f is not None:
+            j = spec["ram_speed"] * g.mass * 0.5
+            f.vx[rock] += fx * j / f.m[rock]
+            f.vy[rock] += fy * j / f.m[rock]
+        self.sparks.burst("steel", x, y, math.atan2(-fy, -fx), 1.0, 10, (30, 110), (0.2, 0.45))
+        self.smoke.burst("dust", x, y, math.atan2(-fy, -fx), 1.0, 6, (10, 50), (0.3, 0.7))
+        self.kick += 0.15
+        self.push_enemy(g, -fx * 110 * g.mass, -fy * 110 * g.mass)
+        self.events.append(("rock", "enemy", "ram"))
+
     def mothership_beam(self, ms: Enemy) -> Beam:
         spec = ENEMY_WEAPONS["mothership_laser"]
         x, y = to_world(ms.x, ms.y, ms.heading, *EMITTER)
         beam = Beam("enemy", x, y, ms.heading, 420.0, 21.0, spec["dps"], spec["fire_time"])
+        beam.reach = beam.length
         self.beams.append(beam)
         self.kick += 0.35
         return beam
 
     # ------------------------------------------------------------ damage
 
-    def damage_enemy(self, e: Enemy, amount: float, x: float, y: float, flash: float = 1.0) -> None:
-        """`flash` is how bright the white hit flash starts (a laser burns without flashing)."""
+    def damage_enemy(self, e: Enemy, amount: float, x: float, y: float, flash: float = 1.0,
+                     source: str = "") -> None:
+        """`flash` is how bright the white hit flash starts (a laser burns without flashing).
+        `source` is what did it (auto, sniper, missile, laser, ram), for the play log."""
         if not e.targetable:
             return
+        amount = min(amount, e.health)
         e.health -= amount
         e.flash = max(e.flash, flash)
         e.since_hit = 0.0
+        self.events.append(("hit", source, e.kind, amount))
         if e.health <= 0:
             e.health = 0.0
+            self.events.append(("kill", e.kind, source, e.age))
             self.destroy(e)
 
     def push_enemy(self, e: Enemy, vx: float, vy: float) -> None:
@@ -474,15 +575,22 @@ class Stage:
         e.vx += vx / e.mass
         e.vy += vy / e.mass
 
-    def damage_player(self, amount: float, x: float, y: float, kind: str = "shot", push: float = 0.0) -> str:
-        """Returns "shield" or "armor": where the hit landed. `push` shoves the ship away from it."""
+    def damage_player(self, amount: float, x: float, y: float, kind: str = "shot", push: float = 0.0,
+                      source: str = "") -> str:
+        """Returns "shield" or "armor": where the hit landed. `push` shoves the ship away from it.
+        `source` is what did it (an enemy class, a rock), for the play log."""
         ship = self.ship
         come_from = angle_to(x - ship.x, y - ship.y)          # direction of the hit, from the ship
         if push:
             fx, fy = forward_vector(come_from)
             ship.vx -= fx * push
             ship.vy -= fy * push
+        if self.invulnerable > 0 or self.ship_down:
+            return "shield"
+        if amount > 0:
+            self.quiet = 0.0
         if self.shield > 0:
+            taken = min(self.shield, amount)
             self.shield = max(0.0, self.shield - amount)
             self.shield_show = 0.45
             bx, by = to_world(ship.x, ship.y, come_from, 0.0, self.shield_radius - 1)
@@ -494,7 +602,10 @@ class Stage:
                 self.break_shield()
             self.kick += min(0.3, amount / 60)
             self.last_hit = (amount, "shield")
+            if taken > 0:
+                self.events.append(("hurt", source or kind, kind, taken, "shield"))
             return "shield"
+        amount *= self.armor_factor
         self.hull = max(0.0, self.hull - amount)
         self.ship_flash = min(1.0, 0.45 + amount / 30)
         self.anims.append(Anim("armor_hit", (), 4, 18, x, y))
@@ -502,7 +613,49 @@ class Stage:
                           (30, 90), (0.15, 0.4))
         self.kick += min(0.5, 0.08 + amount / 40)
         self.last_hit = (amount, "armor")
+        if amount > 0:
+            self.events.append(("hurt", source or kind, kind, amount, "armor"))
+        self._check_down(source or kind)
         return "armor"
+
+    @property
+    def armor_factor(self) -> float:
+        """How much of a hull hit gets through your armor."""
+        return max(0.0, 1.0 - self.armor * float(DEFENSE.get("armor_block", 0.0)))
+
+    def _check_down(self, source: str) -> None:
+        if self.hull > 0 or not self.can_die or self.ship_down:
+            return
+        self.ship_down = True
+        self.ship_visible = False
+        ship = self.ship
+        self.events.append(("down", source))
+        self.anims.append(Anim("explosion", ("player", 49, 1), 6, 12, ship.x, ship.y, vx=ship.vx * 0.3,
+                               vy=ship.vy * 0.3, drag=2))
+        self.anims.append(Anim("explosion", ("player", 33, 2), 6, 14, ship.x + 5, ship.y - 3, delay=0.12))
+        self.rings.append(Ring("player", ship.x, ship.y, 6, 40, 0.4))
+        for _ in range(8):
+            self._chunk("steel", ship.x, ship.y, 40, 140, carry=(ship.vx * 0.4, ship.vy * 0.4))
+        self.sparks.burst("ion_spark", ship.x, ship.y, 0.0, math.pi, 30, (40, 160), (0.3, 0.8))
+        self.smoke.burst("smoke", ship.x, ship.y, 0.0, math.pi, 20, (10, 60), (0.6, 1.4))
+        self.kick += 1.0
+        self.screen_flash = max(self.screen_flash, 0.6)
+        self.beams = [b for b in self.beams if b.owner != "player"]
+        ship.vx = ship.vy = 0.0
+
+    def respawn(self, x: float, y: float, invulnerable: float = 2.0) -> None:
+        """Back in the fight with full shield and hull, blinking for a moment."""
+        ship = self.ship
+        self._move_ship(x - ship.x, y - ship.y)
+        ship.vx = ship.vy = 0.0
+        ship.angle = 0.0
+        self.ship_down = False
+        self.ship_visible = True
+        self.shield = self.shield_max
+        self.hull = self.hull_max
+        self.invulnerable = invulnerable
+        self.reload_missiles()
+        self.rings.append(Ring("player", x, y, 30, 6, 0.35))
 
     def break_shield(self) -> None:
         """The bubble shatters into arcs that fly apart."""
@@ -625,25 +778,196 @@ class Stage:
             e.flash = max(0.0, e.flash - dt * 12)     # a blink, so steady fire never bleaches a hull
             e.heat = max(0.0, e.heat - dt * 4)
             e.fade_in = min(1.0, e.fade_in + dt / 0.3)
+            e.age += dt
             if e.dying >= 0:
                 e.dying += dt
                 e.flash = max(e.flash, 0.35 + 0.35 * math.sin(e.dying * 40))
-            e.x += e.vx * dt
-            e.y += e.vy * dt
+                e.mx = e.my = 0.0
+            e.x += (e.vx + e.mx) * dt
+            e.y += (e.vy + e.my) * dt
             keep = math.exp(-2.5 * dt)          # a shove dies down; scripted movement sets its own speed
             e.vx *= keep
             e.vy *= keep
         self.enemies = [e for e in self.enemies if e.alive]
+        if self.collide_bodies:
+            self._separate_enemies()
+            if self.ship_visible:
+                self._collide_ship_enemies()
+        if self.field is not None:
+            self._collide_enemy_rocks()
 
         self.ship_flash = max(0.0, self.ship_flash - dt * 6)
         self.shield_show = max(0.0, self.shield_show - dt)
         self.screen_flash = max(0.0, self.screen_flash - dt * 2.5)
+        self.invulnerable = max(0.0, self.invulnerable - dt)
+        self.quiet += dt
+        if self.regen and not self.ship_down and self.quiet >= DEFENSE.get("shield_delay", 3.0):
+            self.shield = min(self.shield_max, self.shield + DEFENSE.get("shield_regen", 10.0) * dt)
 
         self._step_rack(dt)
         self._step_shots(dt)
         self._step_missiles(dt)
         self._step_beams(dt)
         self._step_effects(dt)
+
+    # ------------------------------------------------------------ bumping
+
+    def _collide_ship_enemies(self) -> None:
+        """Your hull against each enemy hull, pixel for pixel: the two push apart, trade momentum by
+        mass, and each takes damage from how hard the hit was."""
+        ship = self.ship
+        pts = shapes.mask_points()
+        fx, fy = forward_vector(ship.angle)
+        rx, ry = right_vector(ship.angle)
+        wx = ship.x + pts[:, 0] * rx + pts[:, 1] * fx
+        wy = ship.y + pts[:, 0] * ry + pts[:, 1] * fy
+        my_reach = shapes.reach()
+        for e in self.enemies:
+            if not e.alive or e.fade_in < 1.0 or e.ramming:
+                continue
+            ram = e.ram if e.kind == "guard" else 0
+            if dist(ship.x, ship.y, e.x, e.y) > my_reach + shapes.reach(e.kind, ram) + 1:
+                continue
+            mask = e.mask
+            inside = shapes.hits_many(mask, e.x, e.y, e.sprite_angle, wx, wy)
+            if not inside.any():
+                continue
+            # Push apart along the line from your centre to the middle of the overlap.
+            nx, ny = float(wx[inside].mean()) - ship.x, float(wy[inside].mean()) - ship.y
+            n = math.hypot(nx, ny)
+            if n < 1e-3:
+                nx, ny = e.x - ship.x, e.y - ship.y
+                n = math.hypot(nx, ny) or 1.0
+            nx, ny = nx / n, ny / n
+            inv_s = 1.0 / max(0.05, self.ship_mass)
+            inv_e = 0.0 if e.kind == "mothership" else 1.0 / e.mass
+            share_s = inv_s / (inv_s + inv_e)
+            contact = (float(wx[inside].mean()), float(wy[inside].mean()))
+            for _ in range(24):
+                self._move_ship(-nx * share_s, -ny * share_s)
+                wx -= nx * share_s
+                wy -= ny * share_s
+                e.x += nx * (1 - share_s)
+                e.y += ny * (1 - share_s)
+                if not shapes.hits_many(mask, e.x, e.y, e.sprite_angle, wx, wy).any():
+                    break
+            rel = (e.vx + e.mx - ship.vx) * nx + (e.vy + e.my - ship.vy) * ny
+            if rel >= 0:
+                continue
+            j = -(1 + self.bounce) * rel / (inv_s + inv_e)
+            ship.vx -= j * inv_s * nx
+            ship.vy -= j * inv_s * ny
+            e.vx += j * inv_e * nx
+            e.vy += j * inv_e * ny
+            self._bump_damage(j, inv_s, inv_e, e, *contact)
+
+    def _bump_damage(self, j: float, inv_s: float, inv_e: float, e: Enemy | None, x: float, y: float) -> None:
+        """Damage from a collision grows with how much it changed each side's speed."""
+        spec = DEFENSE.get("impact", {})
+        safe = spec.get("safe_speed", 120.0)
+        hard = j * inv_s
+        self.sparks.burst("spark", x, y, 0.0, math.pi, 2 + int(min(12, hard / 25)), (20, 90), (0.1, 0.3))
+        if e is not None:
+            self.sparks.burst("alien_debris", x, y, 0.0, math.pi, 1 + int(min(6, hard / 60)), (20, 70), (0.2, 0.4))
+        self.kick += min(0.6, hard / 600)
+        self.events.append(("bump", e.kind if e is not None else "rock", hard))
+        if hard > safe:
+            self.damage_player((hard - safe) * spec.get("player_damage", 0.05), x, y, kind="impact",
+                               source=e.kind if e is not None else "rock")
+        if e is not None:
+            hit = j * inv_e if inv_e > 0 else 0.0
+            if hit > safe:
+                self.damage_enemy(e, (hit - safe) * spec.get("enemy_damage", 0.1), x, y, flash=0.8, source="ram")
+
+    def bump_rock(self, impulse: float, x: float, y: float) -> None:
+        """Your ship hit a rock (the field already bounced it): sparks, shake, and damage if hard."""
+        self._bump_damage(impulse, 1.0 / max(0.05, self.ship_mass), 0.0, None, x, y)
+
+    def _separate_enemies(self) -> None:
+        """Enemy hulls don't stack: overlapping ones are eased apart, the lighter one moving more."""
+        live = [e for e in self.enemies if e.alive and e.fade_in >= 1.0 and e.kind != "mothership"]
+        for i, a in enumerate(live):
+            for b in live[i + 1:]:
+                dx, dy = b.x - a.x, b.y - a.y
+                r = a.body_r + b.body_r
+                d2 = dx * dx + dy * dy
+                if d2 >= r * r:
+                    continue
+                d = math.sqrt(d2) or 0.01
+                over = (r - d) * 0.5
+                ia, ib = 1 / a.mass, 1 / b.mass
+                nx, ny = (dx / d, dy / d) if d > 0.01 else (1.0, 0.0)
+                a.x -= nx * over * ia / (ia + ib) * 2
+                a.y -= ny * over * ia / (ia + ib) * 2
+                b.x += nx * over * ib / (ia + ib) * 2
+                b.y += ny * over * ib / (ia + ib) * 2
+
+    def _collide_enemy_rocks(self) -> None:
+        """Enemy hulls slide off rocks. Their steady flying never shoves a rock (they have no
+        momentum to give); only a knock, from a blast or a bump, carries into it."""
+        f = self.field
+        for e in self.enemies:
+            if not e.alive or e.kind == "mothership":
+                continue
+            r = e.body_r
+            idx, dx, dy = f.near(e.x, e.y, r, r)
+            for i, ddx, ddy in zip(idx, dx, dy):
+                d = math.hypot(ddx, ddy)
+                over = f.r[i] + r - d
+                if over <= 0:
+                    continue
+                nx, ny = (ddx / d, ddy / d) if d > 1e-6 else (1.0, 0.0)
+                e.x -= nx * over
+                e.y -= ny * over
+                rel = (f.vx[i] - e.vx) * nx + (f.vy[i] - e.vy) * ny
+                if rel < -15:
+                    inv_e, inv_a = 1 / e.mass, 1 / f.m[i]
+                    j = -1.3 * rel / (inv_e + inv_a)
+                    e.vx -= j * inv_e * nx
+                    e.vy -= j * inv_e * ny
+                    f.vx[i] += j * inv_a * nx
+                    f.vy[i] += j * inv_a * ny
+
+    def rock_hit(self, x0: float, y0: float, x1: float, y1: float, pad: float = 0.0):
+        """Where the path from (x0, y0) to (x1, y1) first touches a rock: (x, y, rock) or None."""
+        f = self.field
+        if f is None or not len(f):
+            return None
+        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+        hx, hy = abs(x1 - x0) / 2 + pad, abs(y1 - y0) / 2 + pad
+        idx, dx, dy = f.near(mx, my, hx, hy)
+        if not len(idx):
+            return None
+        sx, sy = x1 - x0, y1 - y0
+        L2 = sx * sx + sy * sy
+        best = None
+        for i, cdx, cdy in zip(idx, dx, dy):
+            # Rock centre relative to the start of the path.
+            cx, cy = mx + cdx - x0, my + cdy - y0
+            r = f.r[i] + pad
+            if L2 < 1e-9:
+                if cx * cx + cy * cy <= r * r:
+                    return x0, y0, int(i)
+                continue
+            # Solve |t*s - c| = r for the first t in [0, 1].
+            b = -(cx * sx + cy * sy)
+            c = cx * cx + cy * cy - r * r
+            disc = b * b - L2 * c
+            if disc < 0:
+                continue
+            t = (-b - math.sqrt(disc)) / L2
+            if c <= 0:
+                t = 0.0
+            if 0.0 <= t <= 1.0 and (best is None or t < best[0]):
+                best = (t, int(i))
+        if best is None:
+            return None
+        t, i = best
+        return x0 + sx * t, y0 + sy * t, i
+
+    def _rock_spark(self, x: float, y: float, angle: float, owner: str) -> None:
+        self.anims.append(Anim("flare", ("player" if owner == "player" else "danger",), 2, 26, x, y))
+        self.smoke.burst("dust", x, y, angle, 0.9, 3, (10, 40), (0.2, 0.5))
 
     # ------------------------------------------------------------ shots
 
@@ -655,10 +979,18 @@ class Stage:
             s.x += s.vx * dt
             s.y += s.vy * dt
             s.life -= dt
+            rock = self.rock_hit(x0, y0, s.x, s.y, 0.5) if self.field is not None else None
+            if rock is not None:
+                # Only the part of the path before the rock can hit anything.
+                s.x, s.y = rock[0], rock[1]
             if s.owner == "player":
                 alive = self._player_shot_hits(s, x0, y0)
             else:
                 alive = self._enemy_shot_hits(s, x0, y0)
+            if alive and rock is not None:
+                self._rock_spark(s.x, s.y, math.atan2(-s.vy, -s.vx), s.owner)
+                self.events.append(("rock", s.owner, s.kind))
+                alive = False
             if alive and s.life > 0:
                 keep.append(s)
         self.shots = keep
@@ -713,7 +1045,7 @@ class Stage:
             self.anims.append(Anim("flare", ("player",), 2, 30, x, y))
             self.sparks.burst("ion_spark", x, y, back, 0.7, 3, (30, 90), (0.08, 0.2))
             self.sparks.burst("alien_debris", x, y, back, 0.9, 1, (20, 60), (0.15, 0.35))
-        self.damage_enemy(e, s.damage, x, y, flash=1.0 if s.kind == "sniper" else 0.55)
+        self.damage_enemy(e, s.damage, x, y, flash=1.0 if s.kind == "sniper" else 0.55, source=s.kind)
 
     def _enemy_shot_hits(self, s: Shot, x0: float, y0: float) -> bool:
         ship = self.ship
@@ -772,6 +1104,11 @@ class Stage:
             if m.health <= 0:
                 continue
             if self._missile_contact(m, x0, y0) or m.life <= 0:
+                self._missile_burst(m)
+                continue
+            rock = self.rock_hit(x0, y0, m.x, m.y, 1.0) if self.field is not None and m.clock > 0.05 else None
+            if rock is not None:
+                m.x, m.y = rock[0], rock[1]
                 self._missile_burst(m)
                 continue
             keep.append(m)
@@ -833,7 +1170,7 @@ class Stage:
                     continue
                 falloff = 1.0 - 0.6 * gap / R
             self.push_enemy(e, math.cos(a) * m.blast_push * falloff, math.sin(a) * m.blast_push * falloff)
-            self.damage_enemy(e, m.damage * falloff, m.x, m.y)
+            self.damage_enemy(e, m.damage * falloff, m.x, m.y, source="missile")
 
     def _missile_down(self, m: Missile) -> None:
         m.health = 0
@@ -856,16 +1193,45 @@ class Stage:
                 b.x, b.y = to_world(self.ship.x, self.ship.y, self.ship.angle, *NOSE)
                 b.heading = self.ship.angle
                 fx, fy = forward_vector(b.heading)
-                b.end = (b.x + fx * b.length, b.y + fy * b.length)
+                self._beam_reach(b, fx, fy)
+                b.end = (b.x + fx * b.reach, b.y + fy * b.reach)
                 if b.firing and self.ship_visible:
                     self._player_beam(b, fx, fy, dt)
             else:
-                b.end = (b.x + fx * b.length, b.y + fy * b.length)
+                self._beam_reach(b, fx, fy)
+                b.end = (b.x + fx * b.reach, b.y + fy * b.reach)
                 if b.firing:
                     self._enemy_beam(b, fx, fy, dt)
             if not b.done:
                 keep.append(b)
         self.beams = keep
+
+    def _beam_reach(self, b: Beam, fx: float, fy: float) -> None:
+        """How far the beam gets. Rocks stop any beam, and the mothership's hull stops yours; every
+        other hull it simply burns straight through."""
+        b.reach = b.length
+        if b.owner == "player":
+            for e in self.enemies:
+                if e.kind != "mothership" or not e.targetable:
+                    continue
+                r = shapes.radius_of(e.mask)
+                if not self._segment_near(b.x, b.y, b.x + fx * b.reach, b.y + fy * b.reach, e.x, e.y, r + b.width):
+                    continue
+                d = max(0.0, (e.x - b.x) * fx + (e.y - b.y) * fy - r - b.width)
+                while d <= b.reach:
+                    if shapes.hits(e.mask, e.x, e.y, e.sprite_angle, b.x + fx * d, b.y + fy * d, b.width / 2):
+                        b.reach = d + 1.0
+                        break
+                    d += 1.5
+        if self.field is None:
+            return
+        hit = self.rock_hit(b.x, b.y, b.x + fx * b.reach, b.y + fy * b.reach, b.width / 2 - 1)
+        if hit is not None:
+            b.reach = max(0.0, dist(b.x, b.y, hit[0], hit[1]))
+            if b.firing and self.rng.random() < 0.5:
+                self.smoke.burst("dust", hit[0], hit[1], math.atan2(-fy, -fx), 1.0, 1, (10, 50), (0.2, 0.5))
+                self.sparks.burst("ion_spark" if b.owner == "player" else "danger_spark", hit[0], hit[1],
+                                  math.atan2(-fy, -fx), 1.0, 1, (20, 90), (0.1, 0.25))
 
     def _player_beam(self, b: Beam, fx: float, fy: float, dt: float) -> None:
         for e in self.enemies:
@@ -875,7 +1241,7 @@ class Stage:
             if not self._segment_near(b.x, b.y, b.end[0], b.end[1], e.x, e.y, r + b.width):
                 continue
             d = 0.0
-            while d <= b.length:
+            while d <= b.reach:
                 px, py = b.x + fx * d, b.y + fy * d
                 if shapes.hits(e.mask, e.x, e.y, e.sprite_angle, px, py, b.width / 2):
                     b.contacts[e.uid] = (px, py)
@@ -884,7 +1250,7 @@ class Stage:
                         self.sparks.burst("ion_spark", px, py, math.atan2(-fy, -fx), 1.0, 2, (30, 110), (0.1, 0.3))
                     if self.rng.random() < dt * 30:
                         self.sparks.burst("alien_debris", px, py, math.atan2(-fy, -fx), 1.2, 1, (20, 80), (0.2, 0.5))
-                    self.damage_enemy(e, b.dps * dt, px, py, flash=0.0)
+                    self.damage_enemy(e, b.dps * dt, px, py, flash=0.0, source="laser")
                     break
                 d += 1.5
 
@@ -899,13 +1265,13 @@ class Stage:
         side = abs(rx * fy - ry * fx)          # how far the ship is from the beam's centre line
         if self.shield > 0:
             R = self.shield_radius
-            if side > R + half or along < -R or along > b.length + R:
+            if side > R + half or along < -R or along > b.reach + R:
                 return None
             # Head on, the beam ends where its centre line meets the bubble; a graze ends level with you.
             d = along - math.sqrt(max(0.0, R * R - min(side, R) ** 2))
             return b.x + fx * d, b.y + fy * d
         d = 0.0
-        while d <= b.length:
+        while d <= b.reach:
             px, py = b.x + fx * d, b.y + fy * d
             if self.player_blocks(px, py, half):
                 # The beam's edge has reached the hull; carry the end on to the hull itself if it is in line.
@@ -924,6 +1290,9 @@ class Stage:
         px, py = stop
         b.end = (px, py)
         b.contacts[0] = (px, py)
+        if self.invulnerable > 0:
+            return
+        self.quiet = 0.0
         was = self.shield
         where = "shield" if self.shield > 0 else "armor"
         if where == "shield":
@@ -934,10 +1303,11 @@ class Stage:
             elif self.rng.random() < dt * 12:
                 self.damage_player(0.0, px, py)       # the arc flash where the beam lands
         else:
-            self.hull = max(0.0, self.hull - b.dps * dt)
+            self.hull = max(0.0, self.hull - b.dps * dt * self.armor_factor)
             self.ship_flash = max(self.ship_flash, 0.7)
             if self.rng.random() < dt * 20:
                 self.anims.append(Anim("armor_hit", (), 4, 18, px, py))
+            self._check_down("mothership")
         self.sparks.burst("danger_spark", px, py, math.atan2(-fy, -fx), 1.1, 2, (30, 110), (0.1, 0.3))
         self.kick += dt * 1.2
         self.last_hit = (b.dps, where)

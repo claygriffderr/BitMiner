@@ -1,4 +1,5 @@
-"""The follow camera: it sits on the ship, looks ahead along the drift, and shakes on hard hits.
+"""The follow camera: it sits on the ship, looks ahead along the drift (and in a fight toward the
+mouse), and shakes on hard hits.
 
 Pure Python, so it can be tested without a window.
 """
@@ -40,10 +41,16 @@ class FollowCamera:
         """Add screen shake. Shake grows with the square of trauma, so small bumps stay small."""
         self.trauma = min(1.0, self.trauma + max(0.0, amount))
 
-    def update(self, ship: Ship, tuning: Tuning, dt: float) -> None:
+    def update(self, ship: Ship, tuning: Tuning, dt: float, aim: tuple[float, float] | None = None) -> None:
+        """`aim` is the mouse's offset from the middle of the screen, in game pixels: in a fight the
+        view leans that way (by the CAMERA AIM setting) so you can see what you are shooting at."""
         t = LEAD_TIME * tuning.camera_lead
-        want_x = max(-MAX_LEAD[0], min(MAX_LEAD[0], ship.vx * t))
-        want_y = max(-MAX_LEAD[1], min(MAX_LEAD[1], ship.vy * t))
+        want_x, want_y = ship.vx * t, ship.vy * t
+        if aim is not None:
+            want_x += aim[0] * tuning.camera_aim
+            want_y += aim[1] * tuning.camera_aim
+        want_x = max(-MAX_LEAD[0], min(MAX_LEAD[0], want_x))
+        want_y = max(-MAX_LEAD[1], min(MAX_LEAD[1], want_y))
         ease = 1 - math.exp(-LEAD_EASE * dt)
         self.lead_x += (want_x - self.lead_x) * ease
         self.lead_y += (want_y - self.lead_y) * ease
