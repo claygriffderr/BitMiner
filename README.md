@@ -16,9 +16,12 @@ Early development, built in short sprints with a playable or reviewable demo at 
 3. Weapon effects gallery
 4. Combat
 5. Map, mines and the hunt
-6. Base, shop and the full loop
-7. Adaptive AI
-8. Polish and share
+6. Station and item art (design review)
+7. Drills and the station shop
+8. Upgrades, sentries and mines
+9. The full loop
+10. Adaptive AI
+11. Polish and share
 
 ## Play it
 
@@ -107,10 +110,14 @@ pip install -r requirements.txt
 python -m art.build                       # sprites into assets/sprites, mock screens into assets/mockups
 python -m art.build --review review/      # also the boards and GIFs for the art review page
 python -m art.review_page review/         # the review page itself, review/index.html
+python -m art.review6 review6/            # the sprint 6 station and item review page, review6/index.html
 ```
 
 - `art/palette.py`: every color and what it means
 - `art/sprites.py`: ships, enemies, shots, effects and world pieces
-- `art/hud.py`: the ship console, radar and top bar
+- `art/hud.py`: the ship console, radar, top bar, shop icons and drill arrows
+- `art/items.py`: drills and their gold bar, cracking asteroids, sentries, mines, and the ship's
+  boost, shield levels, loaded missiles and laser charge-up
+- `art/station.py`: the space station screen and its upgrade panels
 - `art/mockups.py`: the two mock fight screens
 - `art/pix.py`: the pixel toolkit (outlines, shading, rotation, glow and the CRT filter)
