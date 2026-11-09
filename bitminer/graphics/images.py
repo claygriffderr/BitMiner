@@ -5,10 +5,13 @@ Nothing here touches the graphics card, so the self-test can build all of it wit
 
 from __future__ import annotations
 
+import math
+from functools import lru_cache
+
 import numpy as np
 from PIL import Image
 
-from art import pix, pixfont, sprites as S
+from art import items as I, pix, pixfont, sprites as S
 from art.palette import rgba
 
 TILE = 960   # Backdrop tile size. Every noise cell size below divides it, so the tiles repeat cleanly.
@@ -34,8 +37,7 @@ def silhouette(img: Image.Image, color=(255, 255, 255, 255)) -> Image.Image:
 
 
 def rock_image(size: int, variant: int, ore: bool) -> Image.Image:
-    seed = 7000 + size * 10 + variant + (50 if ore else 0)
-    return S.asteroid(size, seed, ore=max(1, size // 5) if ore else 0)
+    return S.asteroid(size, rock_seed(size, variant, ore), ore=max(1, size // 5) if ore else 0)
 
 def glyph(ch: str) -> Image.Image:
     """One white character of the HUD font, trimmed like the font trims narrow characters."""
@@ -123,3 +125,83 @@ def star_tile(seed: int, mid: int, bright: int) -> Image.Image:
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 px[(x + dx) % s, (y + dy) % s] = rgba("star_mid")
     return img
+
+
+# ---------------------------------------------------------------- drilled asteroids
+
+MAX_CRACK_SITES = 2
+
+@lru_cache(maxsize=64)
+def _rock(size: int, variant: int, ore: bool) -> Image.Image:
+    return rock_image(size, variant, ore)
+
+
+def rock_seed(size: int, variant: int, ore: bool) -> int:
+    return 7000 + size * 10 + variant + (50 if ore else 0)
+
+
+def rim_distance(size: int, variant: int, ore: bool, heading: float) -> float:
+    """How far a rock's picture reaches from its centre in a direction (0 = up, clockwise), to the
+    middle of its outermost pixel. A drill stands on that spot."""
+    img = _rock(size, variant, ore)
+    x, y = I.rim_point(img, heading)
+    c = (img.width - 1) / 2
+    return math.hypot(x - c, y - c)
+
+
+def worn_rock(size: int, variant: int, ore: bool, stage: int, sites: tuple[float, ...], seed: int) -> Image.Image:
+    """A drilled asteroid at crack stage 0 to 3: its gold flecks fade and cracks spread from where
+    its drills stand (`sites`, headings) as the ore runs out."""
+    if not ore:
+        rock = _rock(size, variant, ore).copy()
+    else:
+        rock = I.drained_rock(size, rock_seed(size, variant, ore), max(1, size // 5), stage)
+    if stage <= 0:
+        return rock
+    plain = _rock(size, variant, ore)
+    # Cracks start from the first two drills set on it; more than that and the rock turns to a web.
+    points = [I.rim_point(plain, a) for a in sites[:MAX_CRACK_SITES]] or [I.rim_point(plain, 0.0)]
+    cracks = I.crack_points(plain, points, seed)
+    rock.alpha_composite(I.crack_overlay(plain, cracks, stage))
+    return rock
+
+
+def crumble_frames(size: int, variant: int, ore: bool, stage: int, sites: tuple[float, ...], seed: int,
+                   frames: int) -> list[Image.Image]:
+    """A worked-out asteroid breaking up and crumbling to dust."""
+    rock = worn_rock(size, variant, ore, stage, sites, seed)
+    return I.shatter(rock, frames, max(4, size // 10), seed=seed)
+
+
+# ---------------------------------------------------------------- the laser charge-up
+
+CHARGE_CANVAS = 104       # the charge-up is drawn round the ship's centre, pointing up
+CHARGE_STEPS = 40         # pictures over the whole charge
+CANCEL_STEPS = 6
+
+
+class _Canvas:
+    """Just enough of `pix.Scene` for `draw_laser_charge`: a clear picture and a light layer."""
+
+    def __init__(self, size: int) -> None:
+        self.w = self.h = size
+        self.base = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        self.light = np.zeros((size, size, 3), dtype=np.float32)
+
+
+def laser_charge(step: int, cancel: int = -1) -> tuple[Image.Image, Image.Image | None]:
+    """One picture of the laser charging (`step` of CHARGE_STEPS), or of the energy scattering after
+    you let go (`cancel` 0 to CANCEL_STEPS - 1), with its light layer."""
+    c = _Canvas(CHARGE_CANVAS)
+    mid = (CHARGE_CANVAS - 1) / 2
+    t = step / CHARGE_STEPS if cancel < 0 else 0.5
+    I.draw_laser_charge(c, mid, mid, 0.0, t, step % 2, cancel=0.0 if cancel < 0 else (cancel + 1) / CANCEL_STEPS)
+    glow = np.zeros((CHARGE_CANVAS, CHARGE_CANVAS, 4), dtype=np.uint8)
+    lit = c.light.max(axis=2) > 0
+    glow[..., :3] = np.clip(c.light * 255 + 0.5, 0, 255).astype(np.uint8)
+    glow[..., 3] = lit * 255
+    twin = light_twin(c.base)
+    out = Image.fromarray(glow)
+    if twin is not None:
+        out = Image.fromarray(np.maximum(np.array(out), np.array(twin)))
+    return c.base, (out if np.array(out)[..., 3].any() else None)

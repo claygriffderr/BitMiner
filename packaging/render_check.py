@@ -35,7 +35,7 @@ MESA_TRIES = 4      # newest releases to try, in case the newest is packed diffe
 RUNS = {
     "flight": ["--mode", "flight", "--smoke", "4", "--shots", "1.5,3.5", "--size", "1280x720"],
     "sandbox": ["--mode", "sandbox", "--smoke", "12", "--shots", "8,11.5", "--size", "1280x720"],
-    "campaign": ["--mode", "campaign", "--smoke", "32", "--shots", "12,31.5", "--size", "1280x720"],
+    "campaign": ["--mode", "campaign", "--smoke", "32", "--shots", "2.5,12,31.5", "--size", "1280x720"],
     "gallery": ["--mode", "gallery", "--scene", "mothership_laser-shield_breaks", "--smoke", "5",
                 "--shots", "3.5,4.5", "--size", "1280x720"],
 }

@@ -1,5 +1,5 @@
-"""Weapon, enemy and defense numbers from `data/weapons.json`, and how enemies fight and waves arrive
-from `data/combat.json`, so none of them live in code."""
+"""Weapon, enemy and defense numbers from `data/weapons.json`, how enemies fight and waves arrive
+from `data/combat.json`, and the station shop from `data/shop.json`, so none of them live in code."""
 
 from __future__ import annotations
 
@@ -27,5 +27,8 @@ WAVES: dict = _COMBAT["waves"]
 SANDBOX: dict = _COMBAT["sandbox"]
 HUNT: dict = _COMBAT["hunt"]
 FLEET: dict = _COMBAT["fleet"]
-MINES: dict = _COMBAT["mines"]
+DRILLS: dict = _COMBAT["drills"]
 PLAYDATA: dict = _COMBAT["playdata"]
+
+SHOP_FILE = DATA_FILE.parent / "shop.json"
+SHOP: dict = json.loads(SHOP_FILE.read_text(encoding="utf-8"))

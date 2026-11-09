@@ -253,7 +253,7 @@ class Brain:
         return self.clear_shot_to(ship.x, ship.y)
 
     def clear_shot_to(self, x: float, y: float, short: float = 0.0) -> bool:
-        """No rock between its gun and (x, y), stopping `short` of it (a mine sits on its rock)."""
+        """No rock between its gun and (x, y), stopping `short` of it (a drill sits on its rock)."""
         st = self.stage
         e = self.e
         gx, gy = e.point(*ENEMY_GUN.get(e.kind, (0.0, 0.0)))
@@ -309,7 +309,7 @@ class InfantryBrain(Brain):
         self.fire_in = self.every * self.battle.rng.uniform(0.8, 1.25)
 
     def _step_unaware(self, dt: float) -> None:
-        """Not knowing where you are: fly with the squad (or alone) and shoot any mine it raids."""
+        """Not knowing where you are: fly with the squad (or alone) and shoot any drill it raids."""
         e = self.e
         if self.squad is not None:
             x, y, kind = self.squad.aim
@@ -571,7 +571,7 @@ class RapidBrain(Brain):
         else:
             tx, ty, kind = self.own_aim(dt)
             if kind != "raid":
-                # No idea where you are and no mine to raid: go where it is sent.
+                # No idea where you are and no drill to raid: go where it is sent.
                 if self.state != "hold":
                     self.state = "hold"
                     self.t = 0.0
@@ -655,7 +655,7 @@ class Squad:
         self.turn = battle.rng.choice((-1.0, 1.0))
         self.plan_in = 0.0
         # What it is doing: "hunt" (round you), or while the enemy doesn't know where you are,
-        # "travel", "search", "raid" (round a mine) or "home".
+        # "travel", "search", "raid" (round a drill) or "home".
         self.task = Task(battle)
         self.aim: tuple[float, float, str] = (ship.x, ship.y, "hunt")
         self.mode = "hunt"
@@ -727,7 +727,7 @@ class Squad:
         for other in self.battle.squads:
             if other is self or not other.members or other.mode != kind:
                 continue
-            if kind == "raid" and other.task.mine is not self.task.mine:
+            if kind == "raid" and other.task.drill is not self.task.drill:
                 continue
             need = math.degrees((self.width / 2 + other.width / 2 + cfg["squad_gap"]) / R)
             diff = wrap_angle(self.bearing - other.bearing)

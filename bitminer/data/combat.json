@@ -70,14 +70,14 @@
                                        {"kind": "guard", "count": 2}, {"kind": "rapid", "count": 3}]}
     ]
   },
-  "mines": {
-    "about": "Secure the Base. Press F near an asteroid (within `reach` of its edge) to set a mine on it; you can run `max` at once. Only asteroids at least `min_size` across take one, and with `ore_only` only those with ore (the glinting ones). An asteroid holds `ore_per_area` ore per square pixel of its picture, so big ones last longer (a 24 px rock about 58, a 48 px one about 230, a 96 px one about 920: at 2 a second, from half a minute to nearly eight). A mine digs `dig_rate` ore a second into its hold, up to `hold`, and stops while the hold is full. Fly within `pickup` of a mine to load its ore (your ship carries `cargo`), and within `unload` of home base to sell it for `credit_per_ore` credits each. A mine lasts until its asteroid runs dry and its hold is empty, or until enemies destroy it: it has `health`. Enemy shots hit anything within `radius` of it. Home base is `base_radius` across for hits and can't be destroyed yet.",
-    "max": 4,
+  "drills": {
+    "about": "Secure the Base. Press F near an asteroid (within `reach` of its edge) to set one of the drills you carry on the side facing you. Only asteroids at least `min_size` across take one, and with `ore_only` only those with ore (the glinting ones). Several drills can share an asteroid, at least `spacing` pixels apart round its edge. An asteroid holds `ore_per_area` ore per square pixel of its picture, so big ones last longer (a 24 px rock about 58, a 48 px one about 230, a 96 px one about 920), and every drill on it digs from that same ore. A drill digs `dig_rate` ore a second into its hold, up to `hold`, and stops while the hold is full. Fly within `pickup` of a drill to load its ore (your ship carries `cargo`), and within `unload` of home base to sell it for `credit_per_ore` credits each. As an asteroid empties it cracks: stage 1, 2 and 3 cracks show once `crack_at` of its ore is gone. Once it is empty and its drills have been unloaded it crumbles away (`crumble_frames` frames at `crumble_fps`) and takes its drills with it. Enemies can destroy a drill: it has `health`, and enemy shots hit anything within `radius` of it. Home base is `base_radius` across for hits and can't be destroyed yet.",
     "health": 900,
     "radius": 8,
     "reach": 40,
     "min_size": 24,
     "ore_only": true,
+    "spacing": 16,
     "ore_per_area": 0.1,
     "dig_rate": 2.0,
     "hold": 40,
@@ -85,6 +85,9 @@
     "cargo": 120,
     "unload": 90,
     "credit_per_ore": 1,
+    "crack_at": [0.25, 0.55, 0.85],
+    "crumble_frames": 9,
+    "crumble_fps": 8,
     "base_radius": 30
   },
   "sandbox": {

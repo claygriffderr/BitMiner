@@ -1,11 +1,16 @@
-"""The HUD for Secure the Base: the sandbox's ship console, plus
+"""The HUD for Secure the Base:
 
+- Lower right: the ship console (`campaign_console.py`): only the weapons you own, shield (NONE
+  until you buy one), hull and armor, the drills you carry and your downs. Hidden while the
+  station screen is open.
 - Top: kills and enemies out on the left; the wave and whether the enemy knows where you are
   (HIDDEN or SPOTTED) in the middle, with no countdown; ore carried and credits on the right.
-- Alerts under the top bar: a wave on its way, being spotted or lost, mines set, hit, lost or run dry.
-- Screen edges: arrows toward close enemies, and constant dim arrows toward home base and each of
-  your mines, a mine's with its health and ore bars beside it (pink while it is under attack).
-- Bottom centre: a prompt when the asteroid next to you can take a mine.
+- Alerts under the top bar: a wave on its way, being spotted or lost, drills set, hit, lost or used
+  up, asteroids crumbling, ore sold and things bought.
+- Screen edges: arrows toward close enemies, a constant dim arrow toward home base, and for each of
+  your drills an arrow with a tiny copy of its gold bar and its health (pink while under attack).
+- Bottom centre: a prompt when you can press E for the station or F to set a drill.
+- In the world: a gold "+3" rises from each enemy you destroy, the credits it paid.
 """
 
 from __future__ import annotations
@@ -15,37 +20,43 @@ import math
 import arcade
 
 from art import hud
-from art.palette import rgba
 
-from ..combat.specs import MINES
-from ..graphics.textures import GameTextures
+from ..combat.specs import DRILLS
+from ..graphics.textures import GameTextures, tex
+from .campaign_console import CampaignConsole
 from .combat_hud import ALERT_SHOW, ARROW_STEPS, VIEW_H, VIEW_W, CombatHud
-from .panel import set_rect, solid
 from .text import text_width
 
-HELP = [("WASD", " FLY  "), ("CLICK", " FIRE  "), ("1-4", "/"), ("WHEEL", " WEAPON  "), ("F", " SET MINE  "),
-        ("N", " CALL WAVE  "), ("P", " PAUSE  "), ("TAB", " TUNING  "), ("ESC", " MENU")]
-MARK_COLOR = {"mine": "ore", "base": "hull_hi", "mine_hit": "danger_pink"}
-ALERT_COLOR = {"mine_set": "ore_hi", "unload": "ore_hi", "mine_dry": "ore", "lost": "alien_green_hi",
-               "notice": "hud_text"}      # the rest are warnings, in pink
-MARK_ALPHA = 0.5          # your mines and base: constant, dim
-HIT_SHOW = 1.5            # seconds a mine's arrow stays pink after a hit
+HELP = [("WASD", " FLY  "), ("CLICK", " FIRE  "), ("1-4", "/"), ("WHEEL", " WEAPON  "), ("F", " DRILL  "),
+        ("E", " STATION  "), ("N", " CALL WAVE  "), ("P", " PAUSE  "), ("TAB", " TUNING  "), ("ESC", " MENU")]
+ALERT_COLOR = {"drill_set": "ore_hi", "unload": "ore_hi", "crumble": "ore", "lost": "alien_green_hi",
+               "bought": "ion_hi", "notice": "hud_text"}      # the rest are warnings, in pink
+MARK_ALPHA = 0.5          # your drills and base: constant, dim
+HIT_SHOW = 1.5            # seconds a drill's arrow stays pink after a hit
 EDGE = (10, VIEW_W - 10, 22, VIEW_H - 28)      # left, right, bottom, top: where edge arrows sit
-BAR_W = 12
+MARKER_STEPS = 10         # a drill marker's gauges are drawn in this many steps
+POP_TIME = 1.1            # seconds a kill's "+3" stays up
+POP_RISE = 14             # game pixels it floats up in that time
+POP_MAX = 12              # at most this many at once (the oldest make way)
+BOUGHT = {"drill": "DRILL", "sniper": "SNIPER", "missiles": "MISSILES", "laser": "LASER", "repair": "HULL PATCHED"}
 
 
 class CampaignHud(CombatHud):
     def __init__(self, textures: GameTextures):
         self.marks = arcade.SpriteList()
-        self.mark_bars = arcade.SpriteList()
-        self._bar_sprites: list[tuple] = []
+        self._marker_tex: dict = {}
         super().__init__(textures)
         self.fps.set(y=VIEW_H - 32)            # under the ore and credits plate
         self.prompt = self.text.label("", VIEW_W // 2, 34, "ore_hi", "center", shadow="console_black")
         self._alert_kind = ""
-        self._mine_hit_t = 99.0
+        self._drill_hit_t = 99.0
+        self.station_open = False
+        self.pops: list = []          # [x, y, label, age] for each kill's credits, in world space
 
     # ------------------------------------------------------------ building
+
+    def _build_console(self) -> None:
+        self.console = CampaignConsole(self.textures, VIEW_W - 6, 6)
 
     def _build_help(self, help_line=None) -> None:
         super()._build_help(HELP)
@@ -66,20 +77,30 @@ class CampaignHud(CombatHud):
 
     def update(self, dt: float, game) -> None:
         """Show the state of `game`, a Campaign."""
-        self._update_console(game)
+        self.station_open = game.station_open
+        self.console.show(not game.station_open)
+        self.console.update(game)
         self._update_top(dt, game)
         self._update_centre(game)
-        spot = game.mine_spot() is not None
-        if spot:
-            self.prompt.set(f"F  SET A MINE HERE   {len(game.mines)}/{int(MINES['max'])}")
-        else:
-            self.prompt.set("")
+        self.prompt.set(self._prompt(game))
+
+    @staticmethod
+    def _prompt(game) -> str:
+        if game.station_open:
+            return ""
+        if game.near_station():
+            return "E  OPEN THE STATION"
+        if game.drillable() is not None:
+            if game.drills_carried > 0:
+                return f"F  SET A DRILL HERE   {game.drills_carried} LEFT"
+            return "NO DRILLS LEFT: BUY MORE AT THE STATION"
+        return ""
 
     def _update_top(self, dt: float, game) -> None:
         st = game.stage
         self.kills.set(str(game.kills))
         self.alive.set(str(game.enemies_out()))
-        self.ore.set(f"{int(game.cargo)}/{int(MINES['cargo'])}")
+        self.ore.set(f"{int(game.cargo)}/{int(DRILLS['cargo'])}")
         self.credits.set(str(game.credits))
         fleet = game.fleet
         wave_txt = f"WAVE {fleet.number}" if fleet.number else "GET READY"
@@ -92,7 +113,7 @@ class CampaignHud(CombatHud):
         self.next_wave.set(state_txt, color="danger_pink_hi" if known else "alien_green_hi",
                            x=left + 16 + text_width(wave_txt))
 
-        self._mine_hit_t += dt
+        self._drill_hit_t += dt
         for ev in st.events:
             kind = ev[0]
             text = None
@@ -102,19 +123,27 @@ class CampaignHud(CombatHud):
                 text = "SPOTTED: THEY ALL KNOW WHERE YOU ARE"
             elif kind == "lost":
                 text = "THEY LOST YOU"
-            elif kind == "mine_set":
-                text = "MINE SET"
-            elif kind == "struct_hit" and ev[1] == "mine":
-                if self._mine_hit_t > ALERT_SHOW or self._alert_kind != "mine_hit":
-                    text = "MINE UNDER ATTACK"
-                    kind = "mine_hit"
-                self._mine_hit_t = 0.0
-            elif kind == "struct_lost" and ev[1] == "mine":
-                text = "MINE DESTROYED"
-            elif kind == "mine_dry":
-                text = "MINE RAN DRY"
+            elif kind == "drill_set":
+                text = "DRILL SET"
+            elif kind == "struct_hit" and ev[1] == "drill":
+                if self._drill_hit_t > ALERT_SHOW or self._alert_kind != "drill_hit":
+                    text = "DRILL UNDER ATTACK"
+                    kind = "drill_hit"
+                self._drill_hit_t = 0.0
+            elif kind == "struct_lost" and ev[1] == "drill":
+                text = "DRILL DESTROYED"
+            elif kind == "crumble":
+                text = "ASTEROID WORKED OUT: IT CRUMBLED WITH ITS DRILL"
             elif kind == "unload":
                 text = f"SOLD {int(round(ev[1]))} ORE  +{ev[2]} CR"
+            elif kind == "bought":
+                text = f"BOUGHT: {BOUGHT.get(ev[1], ev[1].upper())}" if ev[1] != "repair" else BOUGHT["repair"]
+            elif kind == "empty" and ev[1] == "missile":
+                text = "OUT OF MISSILES: BUY MORE AT THE STATION"
+            elif kind == "empty" and ev[1] == "laser":
+                text = "LASER RECHARGING"
+            elif kind == "bounty":
+                self._pop(ev[3], ev[4], ev[2])
             if text is not None:
                 self._show_alert(text, kind)
         self._alert_t += dt
@@ -124,6 +153,29 @@ class CampaignHud(CombatHud):
             self._plate("alert_back", text_width(self.alert.text) + 12, "alert", VIEW_H - 25 - 15, "console_black")
         if self.alert_back is not None:
             self.alert_back.visible = show
+
+    def _pop(self, x: float, y: float, amount: int) -> None:
+        if len(self.pops) >= POP_MAX:
+            old = self.pops.pop(0)
+            old[2].set("")
+        self.pops.append([x, y, self.text.label(f"+{amount}", 0, 0, "ore_hi", "center", shadow="console_black"), 0.0])
+
+    def place_pops(self, dt: float, centre: tuple[float, float]) -> None:
+        """Float each kill's credits up from where it died. `centre` is the view centre in the world."""
+        cx, cy = centre
+        keep = []
+        for p in self.pops:
+            x, y, label, age = p
+            age += dt
+            if age >= POP_TIME:
+                label.set("")
+                continue
+            p[3] = age
+            k = age / POP_TIME
+            alpha = 255 if k < 0.6 else int(255 * (1 - k) / 0.4)
+            label.set(x=int(x - cx + VIEW_W / 2), y=int(y - cy + VIEW_H / 2 + 8 + POP_RISE * k), alpha=alpha)
+            keep.append(p)
+        self.pops = keep
 
     def _show_alert(self, text: str, kind: str) -> None:
         self._alert_t = 0.0
@@ -143,61 +195,54 @@ class CampaignHud(CombatHud):
             self.centre.set("")
             self.centre_sub.set("")
 
-    # ------------------------------------------------------------ your mines and base
+    # ------------------------------------------------------------ your drills and base
 
     def place_marks(self, marks: list) -> None:
-        """`marks` is [(dx, dy, kind, structure)] from the view centre for your base and mines
-        that are off screen. Each gets a dim arrow at the edge; a mine's has its bars beside it."""
+        """`marks` is [(dx, dy, kind, structure)] from the view centre for your base and drills
+        that are off screen. The base gets a dim arrow at the edge; a drill's has its gauges."""
         while len(self.marks) < len(marks):
-            self.marks.append(arcade.Sprite(self._arrow(0, "ore")))
-        while len(self._bar_sprites) < len(marks):
-            parts = (solid(0, 0, BAR_W + 2, 6, "console_black"), solid(0, 0, BAR_W, 2, "console_mid"),
-                     solid(0, 0, BAR_W, 2, "ion"), solid(0, 0, BAR_W, 2, "console_mid"), solid(0, 0, BAR_W, 2, "ore"))
-            for p in parts:
-                self.mark_bars.append(p)
-            self._bar_sprites.append(parts)
+            self.marks.append(arcade.Sprite(self._arrow(0, "hull_hi")))
         left, right, bottom, top = EDGE
         cx, cy = (left + right) / 2, (bottom + top) / 2
         for i, s in enumerate(self.marks):
-            parts = self._bar_sprites[i]
             if i >= len(marks):
                 s.visible = False
-                for p in parts:
-                    p.visible = False
                 continue
             dx, dy, kind, t = marks[i]
-            hit = kind == "mine" and t.since_hit < HIT_SHOW
-            color = MARK_COLOR["mine_hit" if hit else kind]
             a = math.atan2(dy, dx)
             step = int(round(a / math.tau * ARROW_STEPS)) % ARROW_STEPS
-            s.texture = self._arrow(step, color)
             k = min((right - cx) / abs(dx) if dx else 1e9, (top - cy) / abs(dy) if dy else 1e9)
             ax, ay = int(cx + dx * k), int(cy + dy * k)
-            s.center_x, s.center_y = ax + 0.5, ay + 0.5
-            s.alpha = int(255 * (0.95 if hit and int(t.since_hit * 6) % 2 == 0 else MARK_ALPHA))
+            hit = kind == "drill" and t.since_hit < HIT_SHOW
+            if kind == "drill":
+                s.texture = self._marker(step, t, hit)
+                # The gauges sit to the right of the arrow; keep them on screen at the right edge.
+                w = s.texture.width
+                arrow_w = w - 20
+                left_x = ax - arrow_w // 2 if ax < cx + 40 else ax - w + arrow_w // 2
+                s.center_x, s.center_y = left_x + w / 2, ay + 0.5
+            else:
+                s.texture = self._arrow(step, "hull_hi")
+                s.center_x, s.center_y = ax + 0.5, ay + 0.5
+            s.alpha = int(255 * (0.95 if hit and int(t.since_hit * 6) % 2 == 0 else (0.75 if kind == "drill" else MARK_ALPHA)))
             s.visible = True
-            show_bars = kind == "mine"
-            for p in parts:
-                p.visible = show_bars
-            if not show_bars:
-                continue
-            # Bars just inside the arrow, toward the middle of the screen.
-            bx = ax - (BAR_W + 8 if ax > cx + 40 else -8 if ax < cx - 40 else BAR_W // 2)
-            by = ay - (12 if ay > cy + 40 else -6 if ay < cy - 40 else 3)
-            back, h_back, h_fill, o_back, o_fill = parts
-            set_rect(back, bx - 1, by - 1, BAR_W + 2, 6)
-            set_rect(h_back, bx, by + 3, BAR_W, 2)
-            health = t.health / max(1.0, t.max_health)
-            set_rect(h_fill, bx, by + 3, round(BAR_W * health), 2)
-            h_fill.color = rgba("danger_pink" if health < 0.3 else "ion")
-            set_rect(o_back, bx, by, BAR_W, 2)
-            set_rect(o_fill, bx, by, round(BAR_W * t.ore_left / max(1.0, t.ore_max)), 2)
-            for p in parts:
-                p.alpha = int(255 * (0.9 if hit else 0.6))
+
+    def _marker(self, step: int, d, hit: bool) -> arcade.Texture:
+        health = round(d.health / max(1.0, d.max_health) * MARKER_STEPS)
+        fill = round(d.hold / max(1.0, d.hold_max) * MARKER_STEPS)
+        key = (step, health, fill, hit)
+        t = self._marker_tex.get(key)
+        if t is None:
+            angle = -360.0 * step / ARROW_STEPS
+            img = hud.drill_marker(angle, health / MARKER_STEPS, fill / MARKER_STEPS, hit)
+            t = self._marker_tex[key] = tex(img, "drill_marker_" + "_".join(str(v) for v in key))
+        return t
 
     # ------------------------------------------------------------ drawing
 
     def draw(self) -> None:
         self.marks.draw(pixelated=True)
-        self.mark_bars.draw(pixelated=True)
-        super().draw()
+        self.arrows.draw(pixelated=True)
+        self.sprites.draw(pixelated=True)
+        self.console.draw()
+        self.text.draw()

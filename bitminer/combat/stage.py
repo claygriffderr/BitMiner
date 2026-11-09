@@ -162,6 +162,7 @@ class Beam:
     end: tuple[float, float] = (0.0, 0.0)
     contacts: dict = field(default_factory=dict)   # uid -> (x, y), where the beam meets each hull
     reach: float = 0.0           # how far it gets before a rock stops it (its length if none does)
+    burst: float = 0.0           # seconds the charged laser opens extra wide
 
     @property
     def firing(self) -> bool:
@@ -263,25 +264,25 @@ class Lane:
 
 @dataclass
 class Structure:
-    """Something of yours that sits still and can be shot at: a mine on an asteroid, or home base."""
-    kind: str                    # "mine" or "base"
+    """Something of yours that sits still and can be shot at: a drill on an asteroid, or home base."""
+    kind: str                    # "drill" or "base"
     x: float
     y: float
     radius: float                # enemy shots within this of the centre hit it
     health: float
     max_health: float
     uid: int = 0
-    rock: int = -1               # a mine's asteroid
+    rock: int = -1               # a drill's asteroid
     immune: bool = False         # shots spark off it but do no damage
     alive: bool = True
     flash: float = 0.0
     since_hit: float = 99.0
     clock: float = 0.0
-    ore_left: float = 0.0        # a mine: ore still in its asteroid
-    ore_max: float = 0.0
-    hold: float = 0.0            # a mine: ore dug out and waiting for you to pick it up
+    hold: float = 0.0            # a drill: ore dug out and waiting for you to pick it up
     hold_max: float = 0.0
-    side: float = 0.0            # a mine: which way it faces out from its asteroid (heading, degrees)
+    side: float = 0.0            # a drill: which way it faces out from its asteroid (heading, degrees)
+    working: bool = False        # a drill: dug something this step
+    lift: float = 0.0            # a drill: how far its centre sits from its asteroid's centre
 
 
 class Stage:
@@ -316,7 +317,11 @@ class Stage:
         self.last_hit = None         # (amount, "shield" or "armor") for the HUD
         self._uid = 0
         self._gun = 0
+        self.missiles_loaded = 0
+        self.missile_stock: int | None = None     # missiles carried beyond the pods; None = no limit
         self.reload_missiles()
+        self.charging = -1.0         # 0 to 1 while you charge the laser, else -1
+        self.charge_cancel = 0.0     # 1 down to 0 after you let go of a charge early
         # A real fight (the sandbox) turns these on; the gallery leaves them off.
         self.field = None            # an AsteroidField: rocks block shots, beams and ships
         self.world = None            # (width, height) when space wraps around
@@ -343,8 +348,14 @@ class Stage:
         self.reload_missiles()
 
     def reload_missiles(self) -> None:
-        """A full missile rack, ready to fire."""
-        self.missiles_loaded = int(WEAPONS["missile"]["salvo"])
+        """Fill the pods: a full salvo, or as much as you carry when missiles are limited."""
+        salvo = int(WEAPONS["missile"]["salvo"])
+        if self.missile_stock is None:
+            self.missiles_loaded = salvo
+        else:
+            total = self.missiles_loaded + self.missile_stock
+            self.missiles_loaded = min(salvo, total)
+            self.missile_stock = total - self.missiles_loaded
         self.missile_wait = 0.0        # until the next missile can launch
         self.missile_reload = 0.0      # reload time left; above 0 while the rack refills
         self.missile_idle = 0.0        # time since the last launch
@@ -353,6 +364,25 @@ class Stage:
     @property
     def missile_ready(self) -> bool:
         return self.missiles_loaded > 0 and self.missile_wait <= 0 and self.missile_reload <= 0
+
+    @property
+    def missiles_total(self) -> int | None:
+        """Missiles on the pods plus those carried, or None when they never run out."""
+        return None if self.missile_stock is None else self.missiles_loaded + self.missile_stock
+
+    def set_missiles(self, total: int) -> None:
+        """Limit missiles to what you carry, starting with `total` (some of them on the pods)."""
+        self.missiles_loaded = 0
+        self.missile_stock = max(0, int(total))
+        self.reload_missiles()
+
+    def add_missiles(self, n: int) -> None:
+        """Missiles bought at the station go on the pods straight away if there's room."""
+        if self.missile_stock is None:
+            return
+        self.missile_stock += max(0, int(n))
+        if self.missile_reload <= 0:
+            self.reload_missiles()
 
     def uid(self) -> int:
         self._uid += 1
@@ -482,7 +512,7 @@ class Stage:
         self.missiles_loaded -= 1
         self.missile_wait = float(w["gap"])
         self.missile_idle = 0.0
-        if self.missiles_loaded <= 0:
+        if self.missiles_loaded <= 0 and (self.missile_stock is None or self.missile_stock > 0):
             self.missile_reload = float(w["reload"])
         self.events.append(("fire", "missile"))
         return True
@@ -495,16 +525,26 @@ class Stage:
             self.missile_reload -= dt
             if self.missile_reload <= 0:
                 self.reload_missiles()
-        elif self.missiles_loaded < int(w["salvo"]) and self.missile_idle >= w["reload"]:
+        elif (self.missiles_loaded < int(w["salvo"]) and self.missile_idle >= w["reload"]
+              and (self.missile_stock is None or self.missile_stock > 0)):
             # A part-used rack tops up once you have held fire for a reload's time.
             self.reload_missiles()
 
-    def start_laser(self) -> Beam:
+    def start_laser(self, burst: bool = False) -> Beam:
+        """Fire the laser. With `burst` (after its charge-up) it skips the warm-up and opens with a
+        flash and a shockwave."""
         w = WEAPONS["laser"]
         ship = self.ship
         x, y = to_world(ship.x, ship.y, ship.angle, *NOSE)
-        beam = Beam("player", x, y, ship.angle, w["length"], 5.0, w["dps"], w["duration"], warmup=w["warmup"])
+        beam = Beam("player", x, y, ship.angle, w["length"], 5.0, w["dps"], w["duration"],
+                    warmup=0.0 if burst else w["warmup"])
         beam.reach = beam.length
+        if burst:
+            beam.burst = float(w.get("burst", 0.14))
+            self.rings.append(Ring("player", x, y, 3, 26, 0.3))
+            self.sparks.burst("ion_spark", x, y, math.radians(90 - ship.angle), 0.8, 14, (40, 140), (0.15, 0.4))
+            self.kick += 0.35
+            self.screen_flash = max(self.screen_flash, 0.12)
         self.beams.append(beam)
         self.events.append(("fire", "laser"))
         return beam
@@ -594,7 +634,7 @@ class Stage:
         self.events.append(("hit", source, e.kind, amount))
         if e.health <= 0:
             e.health = 0.0
-            self.events.append(("kill", e.kind, source, e.age))
+            self.events.append(("kill", e.kind, source, e.age, e.x, e.y))
             self.destroy(e)
 
     def push_enemy(self, e: Enemy, vx: float, vy: float) -> None:
@@ -605,7 +645,7 @@ class Stage:
         e.vy += vy / e.mass
 
     def damage_structure(self, t: Structure, amount: float, x: float, y: float, source: str = "") -> None:
-        """An enemy hit one of your mines (or your base)."""
+        """An enemy hit one of your drills (or your base)."""
         if not t.alive:
             return
         t.flash = 1.0

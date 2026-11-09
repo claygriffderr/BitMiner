@@ -167,3 +167,17 @@ def test_the_ship_pushing_a_rock_refiles_it():
         f.step(1 / 120)
     assert f._cell[0] == f._key(f.x[0], f.y[0])
     assert 0 in f.near(float(f.x[0]), float(f.y[0]), 1, 1)[0]
+
+
+def test_a_crumbled_rock_leaves_the_field_but_others_keep_their_numbers():
+    f = AsteroidField(1000, 1000)
+    f.add(300, 300, 48, 0, True)
+    f.add(600, 300, 48, 1, False)
+    assert list(f.wear) == [0, 0] and not f.gone.any()
+    f.remove(0)
+    assert f.gone[0] and not f.ore[0] and len(f) == 2
+    idx, _, _ = f.near(300, 300, 50, 50)
+    assert 0 not in idx.tolist()
+    idx, _, _ = f.near(600, 300, 50, 50)
+    assert idx.tolist() == [1]
+    assert f.fits(300, 300, 10)

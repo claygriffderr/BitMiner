@@ -1,4 +1,4 @@
-"""Secure the Base: the big map, mines, the mothership's waves and enemies that have to find you."""
+"""Secure the Base: the big map, drills, the mothership's waves and enemies that have to find you."""
 
 import json
 import math
@@ -9,7 +9,7 @@ from bitminer import sector
 from bitminer.combat.ai import Battle
 from bitminer.combat.campaign import Campaign, autopilot
 from bitminer.combat.hunt import Fleet, Hunt, Task
-from bitminer.combat.specs import FLEET, HUNT, MINES
+from bitminer.combat.specs import DRILLS, FLEET, HUNT
 from bitminer.combat.stage import Stage, Structure, dist
 from bitminer.field import AsteroidField, collision_radius, wrap_delta
 from bitminer.flight import Controls
@@ -59,10 +59,10 @@ def campaign(**kw) -> Campaign:
     return Campaign(Quiet(), Quiet(), Tuning(), scale=kw.pop("scale", SMALL), **kw)
 
 
-def idle(game: Campaign, seconds: float, set_mine=False) -> list:
+def idle(game: Campaign, seconds: float, set_drill=False) -> list:
     events = []
     for i in range(round(seconds / DT)):
-        events += game.step(DT, Controls(), False, None, set_mine=set_mine and i == 0)
+        events += game.step(DT, Controls(), False, None, set_drill=set_drill and i == 0)
     return events
 
 
@@ -163,13 +163,13 @@ def test_a_task_goes_to_where_you_were_seen_searches_then_goes_home():
     assert task.tick(DT, 5000.0, 4000.0)[2] == "search"
 
 
-def test_they_remember_a_mine_they_fly_past_and_raid_it():
+def test_they_remember_a_drill_they_fly_past_and_raid_it():
     st, battle, ms = hunt_stage()
-    mine = Structure("mine", 6000.0, 4000.0, radius=8.0, health=900.0, max_health=900.0, uid=st.uid())
+    mine = Structure("drill", 6000.0, 4000.0, radius=8.0, health=900.0, max_health=900.0, uid=st.uid())
     st.structures.append(mine)
     sq_ships = battle.add_group("infantry", 3, 6000.0 + HUNT["sight"] - 100, 4000.0, warp=False)
     events = tick(st, battle, 0.2)
-    assert ("mine_found", mine.uid) in events
+    assert ("drill_found", mine.uid) in events
     task = Task(battle)
     assert task.tick(DT, 6200.0, 4000.0)[2] == "raid"
     # Left alone, they shoot it to bits.
@@ -248,7 +248,7 @@ def test_the_mothership_and_home_base_cannot_be_destroyed_yet():
     assert game.mothership.alive and game.mothership.dying < 0 and game.base.alive
 
 
-# ------------------------------------------------------------ mines
+# ------------------------------------------------------------ drills
 
 
 def put_ship_by_ore_rock(game: Campaign, size: int = 64) -> int:
@@ -263,90 +263,203 @@ def put_ship_by_ore_rock(game: Campaign, size: int = 64) -> int:
     return i
 
 
-def test_a_mine_goes_only_on_an_ore_asteroid_big_enough_and_near_enough():
+def move_ship_round(game: Campaign, rock: int, heading: float, gap: float = 20.0) -> None:
+    """Park your ship off asteroid `rock` on the side `heading` points to."""
+    st = game.stage
+    f = st.field
+    a = math.radians(heading)
+    r = float(f.r[rock]) + gap
+    st.ship.x = float(f.x[rock]) + math.sin(a) * r
+    st.ship.y = float(f.y[rock]) + math.cos(a) * r
+    st.ship.vx = st.ship.vy = 0.0
+
+
+def test_you_start_with_one_drill_the_auto_cannon_and_no_shield():
+    game = campaign()
+    st = game.stage
+    assert game.drills_carried == 1 and game.arsenal.owned == ["auto"]
+    assert st.shield == 0 and st.shield_max == 0 and st.missiles_total == 0 and game.credits == 0
+
+
+def test_a_drill_goes_only_on_an_ore_asteroid_big_enough_and_near_enough():
     game = campaign()
     st = game.stage
     f = st.field
     f.add(st.ship.x + 500, st.ship.y + 500, 64, 0, False)
     plain = len(f) - 1
     st.ship.x, st.ship.y = float(f.x[plain]) - f.r[plain] - 20, float(f.y[plain])
-    assert game.mine_spot() != plain
+    assert game.drill_spot() != plain
     i = put_ship_by_ore_rock(game, 64)
-    assert game.mine_spot() == i
-    st.ship.x -= MINES["reach"] + 40
-    assert game.mine_spot() is None
+    assert game.drill_spot() == i
+    st.ship.x -= DRILLS["reach"] + 40
+    assert game.drill_spot() is None
 
 
-def test_setting_a_mine_digging_loading_and_selling():
+def test_setting_a_drill_digging_loading_and_selling():
     game = campaign()
     i = put_ship_by_ore_rock(game, 64)
-    events = idle(game, DT, set_mine=True)
-    assert any(ev[0] == "mine_set" for ev in events)
-    m = game.mines[0]
-    assert m.ore_max == pytest.approx(MINES["ore_per_area"] * 64 ** 2)
-    # It sits on its asteroid's surface, on your side.
+    events = idle(game, DT, set_drill=True)
+    assert any(ev[0] == "drill_set" for ev in events)
+    d = game.drills[0]
+    assert game.drills_carried == 0
+    assert game.rocks[i].total == pytest.approx(DRILLS["ore_per_area"] * 64 ** 2)
+    # It stands on the edge of its asteroid's picture, on your side.
     f = game.stage.field
-    assert dist(m.x, m.y, float(f.x[i]), float(f.y[i])) == pytest.approx(f.r[i] + 5, abs=1)
+    gap = dist(d.x, d.y, float(f.x[i]), float(f.y[i]))
+    assert 64 * 0.37 + 4 < gap < 64 / 2 + 7
+    assert d.x < float(f.x[i])
     # Keep the ship clear while it digs, then fly over.
     st = game.stage
     st.ship.x -= 200
     idle(game, 5.0)
-    assert m.hold == pytest.approx(MINES["dig_rate"] * 5.0, abs=0.2)
-    st.ship.x, st.ship.y = m.x, m.y
+    assert d.hold == pytest.approx(DRILLS["dig_rate"] * 5.0, abs=0.2)
+    st.ship.x, st.ship.y = d.x, d.y
     idle(game, DT)
-    assert game.cargo == pytest.approx(MINES["dig_rate"] * 5.0, abs=0.3) and m.hold < 0.1
+    assert game.cargo == pytest.approx(DRILLS["dig_rate"] * 5.0, abs=0.3) and d.hold < 0.1
     st.ship.x, st.ship.y = game.base.x, game.base.y - 60
     events = idle(game, DT)
     assert any(ev[0] == "unload" for ev in events) and game.cargo == 0 and game.credits >= 9
 
 
-def test_a_mine_stops_digging_when_its_hold_is_full():
+def test_you_need_a_drill_to_set_one():
     game = campaign()
-    put_ship_by_ore_rock(game, 96)
-    idle(game, DT, set_mine=True)
+    put_ship_by_ore_rock(game, 64)
+    game.drills_carried = 0
+    assert game.drillable() is not None and game.drill_spot() is None
+    idle(game, DT, set_drill=True)
+    assert not game.drills
+
+
+def test_a_drill_stops_digging_when_its_hold_is_full():
+    game = campaign()
+    i = put_ship_by_ore_rock(game, 96)
+    idle(game, DT, set_drill=True)
     game.stage.ship.x -= 300
-    idle(game, MINES["hold"] / MINES["dig_rate"] + 5)
-    m = game.mines[0]
-    assert m.hold == pytest.approx(MINES["hold"])
-    assert m.ore_left == pytest.approx(m.ore_max - MINES["hold"], abs=0.1)
+    idle(game, DRILLS["hold"] / DRILLS["dig_rate"] + 5)
+    d = game.drills[0]
+    assert d.hold == pytest.approx(DRILLS["hold"]) and not d.working
+    pool = game.rocks[i]
+    assert pool.left == pytest.approx(pool.total - DRILLS["hold"], abs=0.1)
 
 
-def test_a_worked_out_asteroid_loses_its_mine_and_its_ore():
+def test_several_drills_share_an_asteroid_but_not_the_same_spot():
     game = campaign()
-    i = put_ship_by_ore_rock(game, 24)
-    idle(game, DT, set_mine=True)
-    m = game.mines[0]
-    m.ore_left = 1.0
+    game.drills_carried = 3
+    i = put_ship_by_ore_rock(game, 96)
+    move_ship_round(game, i, 270)
+    idle(game, DT, set_drill=True)
+    move_ship_round(game, i, 275)           # right next to the first: no room
+    assert game.drill_spot() is None
+    move_ship_round(game, i, 0)
+    idle(game, DT, set_drill=True)
+    assert len(game.drills) == 2 and {d.rock for d in game.drills} == {i}
+    # Both dig from the same ore, so it empties twice as fast.
+    game.stage.ship.x += 400
+    idle(game, 4.0)
+    pool = game.rocks[i]
+    assert pool.total - pool.left == pytest.approx(2 * DRILLS["dig_rate"] * 4.0, abs=0.5)
+
+
+def test_an_asteroid_cracks_in_stages_as_it_empties():
+    game = campaign()
+    i = put_ship_by_ore_rock(game, 96)
+    idle(game, DT, set_drill=True)
+    f = game.stage.field
+    pool = game.rocks[i]
+    stages = []
+    for drained in (0.1, 0.3, 0.6, 0.9):
+        pool.left = pool.total * (1 - drained)
+        events = idle(game, DT)
+        stages.append(int(f.wear[i]))
+    assert stages == [0, 1, 2, 3]
+    assert ("crack", i, 3) in events
+
+
+def test_a_worked_out_asteroid_crumbles_once_unloaded_and_takes_its_drills():
+    game = campaign()
+    game.drills_carried = 2
+    i = put_ship_by_ore_rock(game, 48)
+    move_ship_round(game, i, 270)
+    idle(game, DT, set_drill=True)
+    move_ship_round(game, i, 90)
+    idle(game, DT, set_drill=True)
+    a, b = game.drills
     st = game.stage
-    st.ship.x, st.ship.y = m.x, m.y
-    events = idle(game, 2.0)
-    assert ("mine_dry", m.uid) in events and not game.mines and not st.field.ore[i]
-    assert m not in st.structures
+    f = st.field
+    st.ship.x += 300
+    game.rocks[i].left = 0.0
+    a.hold, b.hold = 10.0, 0.0
+    events = idle(game, 0.5)
+    assert not f.gone[i] and a.alive               # it waits until you pick up the last ore
+    st.ship.x, st.ship.y = a.x, a.y
+    events = idle(game, 0.2)
+    assert any(ev[0] == "crumble" and ev[1] == i for ev in events)
+    assert f.gone[i] and not game.drills and not a.alive and not b.alive and i not in game.rocks
+    assert any(an.name == "crumble" for an in st.anims)
+    # Nothing can find it any more: no lookups, no collisions, no new drill.
+    idx, _, _ = f.near(float(f.x[i]), float(f.y[i]), 10, 10)
+    assert i not in idx.tolist()
+    assert game.drillable() is None or game.drillable()[0] != i
 
 
-def test_you_can_run_only_so_many_mines():
+def test_enemy_fire_wears_a_drill_down_until_it_is_lost():
     game = campaign()
-    for _ in range(int(MINES["max"])):
-        put_ship_by_ore_rock(game, 64)
-        idle(game, DT, set_mine=True)
-    assert len(game.mines) == MINES["max"]
     put_ship_by_ore_rock(game, 64)
-    assert game.mine_spot() is None
-
-
-def test_enemy_fire_wears_a_mine_down_until_it_is_lost():
-    game = campaign()
-    put_ship_by_ore_rock(game, 64)
-    idle(game, DT, set_mine=True)
-    m = game.mines[0]
+    idle(game, DT, set_drill=True)
+    d = game.drills[0]
     st = game.stage
-    st.damage_structure(m, MINES["health"] - 1, m.x, m.y)
-    assert m.alive and m.health == pytest.approx(1)
+    st.damage_structure(d, DRILLS["health"] - 1, d.x, d.y)
+    assert d.alive and d.health == pytest.approx(1)
     st.events = []
-    st.damage_structure(m, 50, m.x, m.y)
-    assert ("struct_lost", "mine", m.uid) in st.events
+    st.damage_structure(d, 50, d.x, d.y)
+    assert ("struct_lost", "drill", d.uid) in st.events
     idle(game, DT)
-    assert not game.mines
+    assert not game.drills
+
+
+# ------------------------------------------------------------ the station
+
+
+def test_e_opens_the_station_only_when_you_are_at_it():
+    game = campaign()
+    st = game.stage
+    st.ship.x, st.ship.y = game.base.x, game.base.y - 300
+    assert not game.open_station() and not game.station_open
+    st.ship.x, st.ship.y = game.base.x, game.base.y - 60
+    assert game.near_station() and game.open_station() and game.station_open
+    events = idle(game, DT)
+    assert ("station", "open") in events
+
+
+def test_the_ship_holds_still_and_cannot_fire_while_docked():
+    game = campaign()
+    st = game.stage
+    st.ship.x, st.ship.y = game.base.x, game.base.y - 60
+    st.ship.vx = 40.0
+    game.open_station()
+    for _ in range(120):
+        events = game.step(DT, Controls(forward=True), True, None)
+        assert not any(ev[0] == "fire" for ev in events)
+    assert abs(st.ship.vx) < 1.0 and abs(st.ship.vy) < 1.0
+    assert game.station_open             # the game kept running, and you're still docked
+
+
+def test_the_station_closes_when_you_go_down():
+    game = campaign()
+    st = game.stage
+    st.ship.x, st.ship.y = game.base.x, game.base.y - 60
+    game.open_station()
+    st.damage_player(1e6, st.ship.x + 5, st.ship.y, source="test")
+    idle(game, DT)
+    assert not game.station_open
+
+
+def test_the_station_warns_you_when_enemies_are_near():
+    game = campaign()
+    st = game.stage
+    assert not game.enemy_near()
+    st.spawn("infantry", st.ship.x + 200, st.ship.y, warp=False)
+    assert game.enemy_near()
 
 
 def test_going_down_loses_your_cargo_and_brings_you_back_at_base():
@@ -367,7 +480,7 @@ def test_going_down_loses_your_cargo_and_brings_you_back_at_base():
 # ------------------------------------------------------------ the HUD's view of it
 
 
-def test_arrows_point_at_your_base_and_mines_when_they_are_off_screen():
+def test_arrows_point_at_your_base_and_drills_when_they_are_off_screen():
     game = campaign()
     st = game.stage
     centre = (st.ship.x, st.ship.y)
@@ -389,16 +502,17 @@ def test_five_minutes_on_auto_pilot():
     events = []
     clock = 0.0
     for _ in range(round(300 / DT)):
-        controls, trigger, cursor, set_mine = autopilot(game, clock)
-        events += game.step(DT, controls, trigger, cursor, set_mine)
+        controls, trigger, cursor, set_drill = autopilot(game, clock)
+        events += game.step(DT, controls, trigger, cursor, set_drill)
         clock += DT
     kinds = {ev[0] for ev in events}
-    assert {"mine_set", "load", "unload", "wave"} <= kinds
-    assert game.credits > 0 and game.fleet.number >= 1
+    assert {"drill_set", "load", "unload", "wave", "station", "bought"} <= kinds
+    assert sum(1 for ev in events if ev[0] == "bought" and ev[1] == "drill") >= 1
+    assert game.fleet.number >= 1
 
 
 def test_campaign_numbers_are_all_in_the_data_files():
     data = json.loads((sector.MAP_FILE.parent / "combat.json").read_text())
-    for block in ("hunt", "fleet", "mines"):
+    for block in ("hunt", "fleet", "drills"):
         assert "about" in data[block]
     assert "about" in sector.MAP

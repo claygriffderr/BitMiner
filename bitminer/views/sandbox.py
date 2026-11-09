@@ -180,7 +180,9 @@ class SandboxView(arcade.View):
         st = sb.stage
         self.clock += dt
         controls, trigger, cursor = self.pilot()
-        self._controls = controls if not st.ship_down else Controls()
+        # No flames while the ship can't move: down, docked, or holding still to charge the laser.
+        still = st.ship_down or sb.arsenal.charging or getattr(sb, "station_open", False)
+        self._controls = Controls() if still else controls
         events = self.step_game(dt, controls, trigger, cursor)
         if self.log is not None:
             self.log.record(dt, events, sb)
@@ -197,7 +199,7 @@ class SandboxView(arcade.View):
             aim = (w.mouse[0] - VIEW[0] / 2, w.mouse[1] - VIEW[1] / 2)
         else:
             aim = None
-        self.camera.update(st.ship, w.settings.tuning, dt, aim)
+        self.camera.update(st.ship, w.settings.tuning, dt, aim, hold=self.camera_hold())
         self.flame_clock += dt
         self.hud.update(dt, sb)
         self.hud.set_fps(w.fps)
@@ -214,6 +216,10 @@ class SandboxView(arcade.View):
 
     def step_game(self, dt: float, controls: Controls, trigger: bool, cursor) -> list:
         return self.sb.step(dt, controls, trigger, cursor)
+
+    def camera_hold(self):
+        """Where the view should sit relative to the ship, or None to follow it as usual."""
+        return None
 
     def place_arrows(self) -> None:
         """Arrows at the screen edge toward enemies just off screen."""
@@ -234,7 +240,7 @@ class SandboxView(arcade.View):
             ship_x=ship.x, ship_y=ship.y, ship_angle=ship.angle,
             boosters=self._controls.boosters(), flame_frame=int(self.flame_clock * FLAME_FPS),
             flash=st.ship_flash, crt=w.settings.display.crt, ship_visible=st.ship_visible and not blink,
-            stage=self.drawer)
+            stage=self.drawer, missiles=st.missiles_loaded if "missile" in self.sb.arsenal.owned else 0)
 
     def on_draw(self):
         w = self.window

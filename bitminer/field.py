@@ -56,6 +56,9 @@ class AsteroidField:
         self.size = np.zeros(0, dtype=int)
         self.variant = np.zeros(0, dtype=int)
         self.ore = np.zeros(0, dtype=bool)
+        self.wear = np.zeros(0, dtype=np.int8)     # crack stage 0 to 3 as drills empty a rock
+        self.gone = np.zeros(0, dtype=bool)        # crumbled away: no longer in the field
+        self.sites: dict[int, list[float]] = {}    # where drills sit on a rock (headings), for its cracks
         self._reach_cache = None
         self._reach_max = 0.0
         self._r_max = 0.0
@@ -84,6 +87,8 @@ class AsteroidField:
         self.size = np.append(self.size, size)
         self.variant = np.append(self.variant, variant)
         self.ore = np.append(self.ore, ore)
+        self.wear = np.append(self.wear, np.int8(0))
+        self.gone = np.append(self.gone, False)
         self._r_max = max(self._r_max, r)
         i = len(self.x) - 1
         key = self._key(self.x[i], self.y[i])
@@ -107,6 +112,8 @@ class AsteroidField:
         self.size = np.concatenate([self.size, sizes])
         self.variant = np.concatenate([self.variant, np.asarray(variants, dtype=int)])
         self.ore = np.concatenate([self.ore, np.asarray(ores, dtype=bool)])
+        self.wear = np.concatenate([self.wear, np.zeros(k, dtype=np.int8)])
+        self.gone = np.concatenate([self.gone, np.zeros(k, dtype=bool)])
         if k:
             self._r_max = max(self._r_max, float(r.max()))
         keys = self._keys(xs, ys)
@@ -126,9 +133,26 @@ class AsteroidField:
         cy = (np.floor_divide(ys, self._ch).astype(np.int64)) % self._gh
         return cy * self._gw + cx
 
+    def remove(self, i: int) -> None:
+        """Take rock `i` out of the field for good (it crumbled). It keeps its number, so other
+        rocks keep theirs, but nothing finds it any more: no collisions, no lookups."""
+        if self.gone[i]:
+            return
+        self.gone[i] = True
+        self.ore[i] = False
+        self.vx[i] = self.vy[i] = 0.0
+        cell = self._grid.get(int(self._cell[i]))
+        if cell is not None and i in cell:
+            cell.remove(i)
+            if not cell:
+                del self._grid[int(self._cell[i])]
+        self.sites.pop(i, None)
+
     def _refile(self, idx) -> None:
         """Rocks in `idx` may have moved: file them under the cell they are in now."""
         for i in np.atleast_1d(idx).tolist():
+            if self.gone[i]:
+                continue
             key = self._key(self.x[i], self.y[i])
             old = int(self._cell[i])
             if key != old:

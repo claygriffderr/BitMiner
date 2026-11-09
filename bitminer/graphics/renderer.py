@@ -25,6 +25,7 @@ from art.palette import rgba
 from ..field import AsteroidField, wrap_delta
 from .backdrop import Backdrop
 from .gpu import render_texture
+from .images import light_twin, worn_rock
 from .particles import Particles
 from .postfx import Bloom, Composite, Outline, Present
 from .textures import GameTextures
@@ -49,6 +50,7 @@ class FrameView:
     crt: bool
     ship_visible: bool = True
     stage: Any = None     # a StageDrawer with this frame's combat layers, or None
+    missiles: int = -1    # missiles showing on the pods (0 to 6), or -1 for the plain ship
 
 
 def snap(v, k: int):
@@ -97,6 +99,8 @@ class Renderer:
         for s in self.flame_light.values():
             self.ship_light.append(s)
 
+        self._missiles = -1
+        self._worn = 0
         self.k = 0
         self.fb = (0, 0)
         self.origin = (0, 0)
@@ -129,6 +133,8 @@ class Renderer:
                 self.glow_sprites[i] = g
         self._rx = np.full(len(field), np.nan)
         self._ry = np.full(len(field), np.nan)
+        self._wear = field.wear.copy()
+        self._gone = field.gone.copy()
         self.reach = float(field.size.max()) / 2 + 4 if len(field) else 0.0
 
     def _tile_key(self, x: float, y: float) -> int:
@@ -200,7 +206,38 @@ class Renderer:
 
     # ------------------------------------------------------------ syncing sprites
 
+    def _sync_wear(self) -> None:
+        """Drilled rocks crack as they empty and are taken away once they crumble."""
+        f = self.field
+        changed = np.nonzero((f.wear != self._wear) | (f.gone != self._gone))[0]
+        for i in changed.tolist():
+            s = self.rock_sprites[i]
+            g = self.glow_sprites.get(i)
+            if f.gone[i]:
+                s.remove_from_sprite_lists()
+                if g is not None:
+                    g.remove_from_sprite_lists()
+                    del self.glow_sprites[i]
+                continue
+            size, variant, ore = int(f.size[i]), int(f.variant[i]), bool(self._ore_art(i))
+            img = worn_rock(size, variant, ore, int(f.wear[i]), tuple(f.sites.get(i, ())), seed=i)
+            self._worn += 1                 # every picture gets its own name, so none is mistaken for another
+            s.texture = arcade.Texture(img, hash=f"bitminer:worn{self._worn}")
+            glow = light_twin(img)
+            if g is not None:
+                if glow is None:
+                    g.visible = False
+                else:
+                    g.texture = arcade.Texture(glow, hash=f"bitminer:worn{self._worn}_light")
+        self._wear = f.wear.copy()
+        self._gone = f.gone.copy()
+
+    def _ore_art(self, i: int) -> bool:
+        """Whether rock i was drawn with ore (its sprite has a glow twin)."""
+        return i in self.glow_sprites
+
     def _sync_rocks(self) -> None:
+        self._sync_wear()
         f = self.field
         moved = np.nonzero(~((f.x == self._rx) & (f.y == self._ry)))[0]
         if not len(moved):
@@ -262,6 +299,12 @@ class Renderer:
             s.angle = ls.angle = view.ship_angle
             s.position = (ship_cx, ship_cy)
             ls.position = (ship_cx / k, ship_cy / k)
+        if view.missiles != self._missiles:
+            self._missiles = view.missiles
+            if view.missiles < 0:
+                self.body.texture, self.body_light.texture = self.art.ship_body, self.art.ship_body_light
+            else:
+                self.body.texture, self.body_light.texture = self.art.ship_loaded[max(0, min(6, view.missiles))]
         self.body.angle = self.flash.angle = self.body_light.angle = view.ship_angle
         self.body.position = self.flash.position = (0, 0)
         self.flash.alpha = int(255 * max(0.0, min(1.0, view.flash)))
