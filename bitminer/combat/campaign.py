@@ -29,6 +29,7 @@ from .specs import DRILLS, ENEMIES, SANDBOX, SHOP, WEAPONS
 from .stage import Anim, Stage, Structure, dist
 
 PLAYER_WEAPONS = ("auto", "sniper", "missile", "laser", "ram")
+KILL_CREDITS = SHOP.get("kill_credits", {})     # what each enemy pays when you destroy it
 DRILL_LIFT = 5.0        # a drill's centre sits this far out from the edge of its asteroid's picture (its legs on the rock)
 
 
@@ -349,7 +350,12 @@ class Campaign:
 
         if any(ev[0] == "hit" and ev[1] in PLAYER_WEAPONS for ev in st.events):
             self.hunt.reveal()          # you hit one: now they all know where you are
-        self.kills += sum(1 for ev in st.events if ev[0] == "kill")
+        for ev in [ev for ev in st.events if ev[0] == "kill"]:
+            self.kills += 1
+            pay = int(KILL_CREDITS.get(ev[1], 0))
+            if pay:
+                self.credits += pay     # paid the moment it goes down
+                st.events.append(("bounty", ev[1], pay, ev[4], ev[5]))
         if st.ship_down and not self._down:
             self.downs += 1
             self.respawn_in = float(SANDBOX["respawn"])

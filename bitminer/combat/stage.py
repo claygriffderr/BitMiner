@@ -634,7 +634,7 @@ class Stage:
         self.events.append(("hit", source, e.kind, amount))
         if e.health <= 0:
             e.health = 0.0
-            self.events.append(("kill", e.kind, source, e.age))
+            self.events.append(("kill", e.kind, source, e.age, e.x, e.y))
             self.destroy(e)
 
     def push_enemy(self, e: Enemy, vx: float, vy: float) -> None:

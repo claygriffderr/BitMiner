@@ -8,7 +8,7 @@ from bitminer.combat.sandbox import Sandbox
 from bitminer.combat.shop import PAGE_ITEMS, PAGES, Shop
 from bitminer.combat.specs import SHOP, WEAPONS
 from bitminer.combat.stage import Stage
-from bitminer.flight import Controls
+from bitminer.flight import Controls, angle_to
 from bitminer.settings import Tuning
 
 DT = 1 / 60
@@ -73,13 +73,38 @@ def test_drills_up_to_the_most_you_can_own():
     assert game.drills_carried == most and game.shop.offer("drill").blocked == "MAX"
 
 
-def test_a_free_drill_when_you_have_none_and_cant_afford_one():
+def test_no_free_drill_when_you_are_broke():
     game = campaign()
     game.drills_carried = 0
     game.credits = 20
-    assert game.shop.offer("drill").price == 0
-    assert game.shop.buy("drill") and game.drills_carried == 1 and game.credits == 20
-    assert game.shop.offer("drill").price == price("drill")     # only while you have none
+    assert game.shop.offer("drill").price == price("drill")
+    assert not game.shop.buy("drill") and game.drills_carried == 0 and game.credits == 20
+
+
+@pytest.mark.parametrize("kind", ["infantry", "rapid", "guard", "tank"])
+def test_each_kill_pays_credits_the_moment_it_goes_down(kind):
+    game = campaign()
+    st = game.stage
+    pay = int(SHOP["kill_credits"][kind])
+    st.ship.x += 1500                  # out in open space, clear of the station
+    e = st.spawn(kind, st.ship.x + 120, st.ship.y, warp=False)
+    e.health = 1.0
+    game.arsenal.own("sniper")
+    game.arsenal.select("sniper")
+    events = []
+    for _ in range(round(1.5 / DT)):
+        aim = angle_to(e.x - st.ship.x, e.y - st.ship.y)
+        events += game.step(DT, Controls(aim=aim), True, (e.x, e.y))
+        if game.kills:
+            break
+    assert game.kills == 1 and game.credits == pay
+    assert any(ev[:3] == ("bounty", kind, pay) for ev in events)
+
+
+def test_kill_credits_follow_how_dangerous_the_enemy_is():
+    pay = SHOP["kill_credits"]
+    assert pay["infantry"] == 3 and pay["guard"] == 5 and pay["tank"] == 50
+    assert pay["infantry"] < pay["guard"] < pay["tank"] < pay["mothership"]
 
 
 def test_health_patches_half_your_hull_and_only_when_hurt():

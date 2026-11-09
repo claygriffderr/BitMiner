@@ -84,7 +84,7 @@ def _row(game, o) -> ST.Row:
         return ST.Row(key, name, o.price, sub=f"{c['missiles']} CARRIED  BUY {pack}",
                       tag="FULL" if o.blocked else None)
     if key == "drill":
-        tag = "MAX" if o.blocked else ("FREE" if o.price == 0 else None)
+        tag = "MAX" if o.blocked else None
         return ST.Row(key, name, o.price, sub=f"{c['carried']} CARRIED  {c['out']} OUT", tag=tag)
     return ST.Row(key, name, o.price)
 
@@ -120,8 +120,6 @@ def _detail(game, o) -> ST.Detail:
     elif key == "drill":
         sub = f"{c['carried']} CARRIED  {c['out']} OUT"
         stats = [("CARRIED", str(c["carried"]), str(c["carried"] + 1))]
-        if o.price == 0 and not o.blocked:
-            buy = "TAKE A FREE ONE"
     else:
         sub = ""
     return ST.Detail(NAMES[key], sub, [about], [], stats=stats, bars=bars, buy=buy, price=price)

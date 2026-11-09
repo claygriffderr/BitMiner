@@ -10,6 +10,7 @@
 - Screen edges: arrows toward close enemies, a constant dim arrow toward home base, and for each of
   your drills an arrow with a tiny copy of its gold bar and its health (pink while under attack).
 - Bottom centre: a prompt when you can press E for the station or F to set a drill.
+- In the world: a gold "+3" rises from each enemy you destroy, the credits it paid.
 """
 
 from __future__ import annotations
@@ -34,6 +35,9 @@ MARK_ALPHA = 0.5          # your drills and base: constant, dim
 HIT_SHOW = 1.5            # seconds a drill's arrow stays pink after a hit
 EDGE = (10, VIEW_W - 10, 22, VIEW_H - 28)      # left, right, bottom, top: where edge arrows sit
 MARKER_STEPS = 10         # a drill marker's gauges are drawn in this many steps
+POP_TIME = 1.1            # seconds a kill's "+3" stays up
+POP_RISE = 14             # game pixels it floats up in that time
+POP_MAX = 12              # at most this many at once (the oldest make way)
 BOUGHT = {"drill": "DRILL", "sniper": "SNIPER", "missiles": "MISSILES", "laser": "LASER", "repair": "HULL PATCHED"}
 
 
@@ -47,6 +51,7 @@ class CampaignHud(CombatHud):
         self._alert_kind = ""
         self._drill_hit_t = 99.0
         self.station_open = False
+        self.pops: list = []          # [x, y, label, age] for each kill's credits, in world space
 
     # ------------------------------------------------------------ building
 
@@ -137,6 +142,8 @@ class CampaignHud(CombatHud):
                 text = "OUT OF MISSILES: BUY MORE AT THE STATION"
             elif kind == "empty" and ev[1] == "laser":
                 text = "LASER RECHARGING"
+            elif kind == "bounty":
+                self._pop(ev[3], ev[4], ev[2])
             if text is not None:
                 self._show_alert(text, kind)
         self._alert_t += dt
@@ -146,6 +153,29 @@ class CampaignHud(CombatHud):
             self._plate("alert_back", text_width(self.alert.text) + 12, "alert", VIEW_H - 25 - 15, "console_black")
         if self.alert_back is not None:
             self.alert_back.visible = show
+
+    def _pop(self, x: float, y: float, amount: int) -> None:
+        if len(self.pops) >= POP_MAX:
+            old = self.pops.pop(0)
+            old[2].set("")
+        self.pops.append([x, y, self.text.label(f"+{amount}", 0, 0, "ore_hi", "center", shadow="console_black"), 0.0])
+
+    def place_pops(self, dt: float, centre: tuple[float, float]) -> None:
+        """Float each kill's credits up from where it died. `centre` is the view centre in the world."""
+        cx, cy = centre
+        keep = []
+        for p in self.pops:
+            x, y, label, age = p
+            age += dt
+            if age >= POP_TIME:
+                label.set("")
+                continue
+            p[3] = age
+            k = age / POP_TIME
+            alpha = 255 if k < 0.6 else int(255 * (1 - k) / 0.4)
+            label.set(x=int(x - cx + VIEW_W / 2), y=int(y - cy + VIEW_H / 2 + 8 + POP_RISE * k), alpha=alpha)
+            keep.append(p)
+        self.pops = keep
 
     def _show_alert(self, text: str, kind: str) -> None:
         self._alert_t = 0.0

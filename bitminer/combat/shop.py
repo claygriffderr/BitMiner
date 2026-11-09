@@ -62,8 +62,6 @@ class Shop:
         if key == "drill":
             if self.drills_owned() >= int(self.item(key)["max"]):
                 return Offer(key, None, "MAX")
-            if self.drills_owned() == 0 and g.credits < price and self.item(key).get("free_when_broke", True):
-                return Offer(key, 0)                  # never stuck: no drills and no money gets you one free
             return Offer(key, price)
         if key == "repair":
             if st.hull >= st.hull_max - 1e-6:

@@ -125,6 +125,7 @@ class CampaignView(SandboxView):
 
     def advance(self, dt: float) -> None:
         super().advance(dt)
+        self.hud.place_pops(dt, self.view_centre())
         self.station.update(self.sb, self.clock)
         if self.sb.station_open:
             w = self.window

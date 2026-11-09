@@ -53,7 +53,7 @@ goes back to it.
   waits for you to fly past and load it, and you sell the ore at home base. Asteroids crack as they
   empty, then crumble away and take their drills with them. Press E at the station to open its
   shop (the game keeps running): more drills, the sniper, missiles six at a time, the laser and
-  hull repairs. The laser charges for 2 seconds while you hold fire. Enemies only know where you
+  hull repairs. Every enemy you destroy pays credits on the spot, more for the dangerous ones. The laser charges for 2 seconds while you hold fire. Enemies only know where you
   are while one of them can see you: then they all do, and when they lose you they search where you
   were last seen, then go home. They raid drills they come across. Each wave launches once only a
   few of the last are still out. Dim arrows at the screen edge point at home base and each drill,
@@ -72,7 +72,7 @@ goes back to it.
 Starting values for the sliders live in `bitminer/data/tuning.json`, every weapon, enemy and
 defense number in `bitminer/data/weapons.json`, and how enemies fight and when waves arrive in
 `bitminer/data/combat.json` (with drills, the mothership's waves and how enemies search in its `drills`,
-`fleet` and `hunt` blocks), the station shop's prices and your starting kit in `bitminer/data/shop.json`,
+`fleet` and `hunt` blocks), the station shop's prices, your starting kit and what each kill pays in `bitminer/data/shop.json`,
 and the big map in `bitminer/data/map.json`, so none of them are fixed in code. Each game or sandbox fight is also written
 to a `playdata` folder next to the settings file, for the adaptive AI to learn from later.
 
