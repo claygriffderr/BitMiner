@@ -55,8 +55,8 @@ goes back to it.
   the mothership across the map. You start with one drill, the auto cannon and no shield. F sets a
   drill on an ore asteroid next to you (several can share one); a drill fills its gold bar and
   waits for you to fly past and load it, and you sell the ore at home base. Asteroids crack as they
-  empty, then crumble away; their drills float free, and flying over one puts it back in your
-  hold. Press E at the station to open its
+  empty, then crumble away; their drills float free, and one you fly near flies in to your ship and
+  goes back in your hold. Press E at the station to open its
   shop (the game keeps running): more drills, the sniper, missiles six at a time, the laser, hull
   repairs, 3-level upgrades (shield, armor, boost, auto cannon and sniper), explosive mines and
   sentries, the lasso and the collector ring. Shift boosts once you own it. Hold G to lay the mines you carry behind you (hold still
@@ -67,7 +67,7 @@ goes back to it.
   again lets go, and the rock keeps its speed, so a fast throw hurts what it hits. Hold T to see
   where the collector ring would go and let go of T to place it round you: it holds up to 4
   asteroids you tow in, sells their drills' ore by itself whenever a drill fills, and R inside it
-  mounts sentries on its 4 mounts (they share the ring's health and break with it). Every enemy you destroy pays credits
+  mounts sentries on its 4 mounts (they share the ring's health and break with it). Enemies can't fly into the ring. Every enemy you destroy pays credits
   on the spot, more for the dangerous ones, and = adds 1,000 test credits so every item can be
   tried. The laser charges for 2 seconds while you hold fire. Enemies only know where you
   are while one of them can see you: then they all do, and when they lose you they search where you

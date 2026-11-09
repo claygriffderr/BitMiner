@@ -87,6 +87,11 @@ class Brain:
             self.detour_t -= dt
             if self.goal is None or self.detour_t <= 0 or dist(e.x, e.y, *self.detour) < 12:
                 self.detour = None
+        pad = e.body_r + AI["avoid"]["margin"]
+        if self.goal is not None:
+            self.goal = self.stage.keep_out(*self.goal, pad)      # never a spot inside the collector ring
+        if self.detour is not None:
+            self.detour = self.stage.keep_out(*self.detour, pad)
         target = self.detour if self.detour is not None else self.goal
         if target is None:
             e.mx = e.my = 0.0
@@ -861,8 +866,9 @@ class Battle:
     # ------------------------------------------------------------ steering
 
     def free_point(self, x: float, y: float, r: float) -> tuple[float, float]:
-        """The nearest point to (x, y) where a hull `r` across doesn't overlap a rock, so nobody
-        is sent to a spot it can never reach."""
+        """The nearest point to (x, y) where a hull `r` across doesn't overlap a rock and isn't
+        inside the collector ring, so nobody is sent to a spot it can never reach."""
+        x, y = self.stage.keep_out(x, y, r)
         f = self.stage.field
         if f is None or not len(f):
             return x, y
@@ -881,18 +887,23 @@ class Battle:
         return x, y
 
     def avoid(self, e: Enemy, ux: float, uy: float, ahead: float) -> tuple[float, float]:
-        """Swing round a rock in the way, on the side the path already leans to."""
+        """Swing round a rock (or the collector ring) in the way, on the side the path already
+        leans to."""
         st = self.stage
         f = st.field
-        if f is None or ahead <= 0:
+        if ahead <= 0:
             return ux, uy
         r = e.body_r + AI["avoid"]["margin"]
-        hit = st.rock_hit(e.x, e.y, e.x + ux * ahead, e.y + uy * ahead, r)
+        hit = st.rock_hit(e.x, e.y, e.x + ux * ahead, e.y + uy * ahead, r) if f is not None else None
         if hit is None:
-            return ux, uy
-        i = hit[2]
-        cx = wrap_delta(f.x[i] - e.x, f.width)
-        cy = wrap_delta(f.y[i] - e.y, f.height)
+            wall = st.wall_ahead(e.x, e.y, ux, uy, ahead, r)
+            if wall is None:
+                return ux, uy
+            cx, cy = wall.x - e.x, wall.y - e.y
+        else:
+            i = hit[2]
+            cx = wrap_delta(f.x[i] - e.x, f.width)
+            cy = wrap_delta(f.y[i] - e.y, f.height)
         cd = math.hypot(cx, cy) or 1.0
         if ux * cy - uy * cx > 0:      # rock to the left of the path: pass it on the right
             tx, ty = cy / cd, -cx / cd

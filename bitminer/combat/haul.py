@@ -8,9 +8,10 @@ No graphics: `graphics/combat_draw.py` draws it from what's here.
 - Collector ring (from the station): hold T to see where it would go and let go of T to place it
   round your ship. It catches up to 4 asteroids that drift (or are towed) into it and holds them
   still; drills on them sell their ore by themselves whenever they fill up. Press R inside it to
-  mount a sentry on it: mounted sentries share the ring's health and break with it.
-- Drills aren't used up any more: when a worked-out asteroid crumbles they float free, and flying
-  over one puts it back in your hold.
+  mount a sentry on it: mounted sentries share the ring's health and break with it. Enemies can't
+  fly into it (the stage keeps their hulls outside its band); they shoot it from outside.
+- Drills aren't used up any more: when a worked-out asteroid crumbles they float free, and one you
+  fly near flies in to your ship and goes back in your hold.
 
 Numbers live in the `haul` block of `data/combat.json`, the lasso's levels and the ring's price in
 `data/shop.json`, and the TOW WEIGHT and THROW POWER sliders. The ring's size comes from its art.
@@ -52,7 +53,7 @@ NODE_DIRS = tuple(_game_dir(a) for a in ART.NODE_ANGLES)       # the diagonals; 
 
 @dataclass
 class LooseDrill:
-    """A drill floating free after its asteroid crumbled, until you fly over it."""
+    """A drill floating free after its asteroid crumbled, until you fly near it and it flies in."""
     x: float
     y: float
     vx: float
@@ -61,6 +62,7 @@ class LooseDrill:
     spin: float                  # degrees a second
     uid: int = 0
     clock: float = 0.0
+    homing: bool = False         # near enough to your ship: flying in to it
 
 
 @dataclass
@@ -90,6 +92,11 @@ class CollectorRing(Structure):
 
 def lasso_spec() -> dict:
     return SHOP["upgrades"]["lasso"]
+
+
+def ring_wall() -> float:
+    """How far from the ring's centre enemy hulls are kept (0: they can fly in)."""
+    return RING_RADIUS + RING_HOOP + float(HAUL["keep_out_pad"]) if HAUL["keep_out"] else 0.0
 
 
 class Haul:
@@ -331,7 +338,8 @@ class Haul:
 
     def ring_room(self, x: float, y: float) -> str:
         """Why the ring can't go round (x, y), or "" if it can: ROCK (an asteroid across its band or
-        more than it holds inside), BASE (too near home base) or CROWDED (a sentry in the way)."""
+        more than it holds inside), BASE (too near home base), CROWDED (a sentry in the way) or ENEMY
+        (an enemy where the ring would keep it out)."""
         st = self.stage
         f = st.field
         base = self.game.base
@@ -358,6 +366,11 @@ class Haul:
                 continue
             if dist(x, y, t.x, t.y) < OUTER + t.radius:
                 return "CROWDED"
+        wall = ring_wall()
+        if wall > 0:
+            for e in st.enemies:
+                if e.alive and dist(x, y, e.x, e.y) < wall + e.body_r:
+                    return "ENEMY"
         return ""
 
     def place_ring(self) -> CollectorRing | None:
@@ -372,7 +385,7 @@ class Haul:
             return None
         health = float(HAUL["health"])
         ring = CollectorRing("ring", ship.x, ship.y, radius=RING_RADIUS, health=health, max_health=health,
-                             uid=st.uid(), hoop=RING_HOOP)
+                             uid=st.uid(), hoop=RING_HOOP, wall=ring_wall())
         st.structures.append(ring)
         self.ring = ring
         self.rings_carried -= 1
@@ -531,15 +544,30 @@ class Haul:
         ship = st.ship
         keep = math.exp(-float(DRILLS["float_damper"]) * dt)
         reach = float(DRILLS["float_pickup"])
+        grab = float(DRILLS["float_grab"])
+        pull = float(DRILLS["float_pull"])
         out = []
         for ld in st.loose:
             ld.clock += dt
-            ld.x += ld.vx * dt
-            ld.y += ld.vy * dt
-            ld.vx *= keep
-            ld.vy *= keep
             ld.angle = (ld.angle + ld.spin * dt) % 360.0
-            if not st.ship_down and dist(ship.x, ship.y, ld.x, ld.y) <= reach:
+            d = dist(ship.x, ship.y, ld.x, ld.y)
+            # Within reach it flies in to your ship, through any asteroid in between (so one stuck
+            # under a rock still comes), always a little quicker than you fly.
+            ld.homing = not st.ship_down and (ld.homing or d <= reach)
+            if ld.homing:
+                move = (pull + math.hypot(ship.vx, ship.vy)) * dt
+                if d > 1e-6:
+                    k = min(1.0, move / d)
+                    ld.vx, ld.vy = (ship.x - ld.x) / d * pull + ship.vx, (ship.y - ld.y) / d * pull + ship.vy
+                    ld.x += (ship.x - ld.x) * k
+                    ld.y += (ship.y - ld.y) * k
+                d = dist(ship.x, ship.y, ld.x, ld.y)
+            else:
+                ld.x += ld.vx * dt
+                ld.y += ld.vy * dt
+                ld.vx *= keep
+                ld.vy *= keep
+            if ld.homing and d <= grab:
                 g.drills_carried += 1
                 st.anims.append(Anim("flare", ("player",), 2, 16, ld.x, ld.y))
                 st.events.append(("drill_back", ld.uid))

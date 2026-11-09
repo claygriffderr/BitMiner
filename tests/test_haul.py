@@ -372,6 +372,107 @@ def test_enemies_remember_the_ring_and_raid_its_band():
     assert dist(ax, ay, ring.x, ring.y) == pytest.approx(RING_RADIUS)
 
 
+def flying_enemy(game: Campaign, kind: str, x: float, y: float):
+    e = game.battle.add(kind, x, y, warp=False)
+    e.fade_in = 1.0
+    return e
+
+
+def edge_gap(e, ring) -> float:
+    """How far the enemy's hull is from the outside of the ring's band (negative: inside it)."""
+    return dist(e.x, e.y, ring.x, ring.y) - e.body_r - (RING_RADIUS + RING_HOOP)
+
+
+@pytest.mark.parametrize("kind", ["infantry", "rapid", "guard", "tank"])
+def test_enemies_hunting_you_inside_the_ring_never_get_in(kind):
+    game = campaign()
+    x, y = clear_space(game)
+    ring, _ = place_ring(game)
+    st = game.stage
+    st.shield = st.shield_max = 1e9
+    es = [flying_enemy(game, kind, ring.x + 320 + 30 * k, ring.y + 60 * k) for k in range(3)]
+    nearest = 1e9
+    for _ in range(int(12 / DT)):
+        step(game)
+        st.ship.x, st.ship.y = ring.x, ring.y           # you sit in the middle
+        st.ship.vx = st.ship.vy = 0.0
+        live = [e for e in es if e.alive]
+        assert live
+        gap = min(edge_gap(e, ring) for e in live)
+        assert gap > -0.01
+        nearest = min(nearest, gap)
+    assert nearest < 200          # they did come for you
+
+
+def test_an_enemy_knocked_at_the_ring_stops_at_its_edge():
+    game = campaign()
+    x, y = clear_space(game)
+    ring, _ = place_ring(game)
+    st = game.stage
+    e = flying_enemy(game, "infantry", ring.x + 200, ring.y)
+    st.push_enemy(e, -900.0, 0.0)
+    for _ in range(60):
+        step(game)
+        assert edge_gap(e, ring) > -0.01
+    assert e.vx > -1.0            # the shove didn't carry on through
+
+
+def test_an_enemy_goes_round_the_ring_to_a_spot_on_the_far_side():
+    game = campaign()
+    x, y = clear_space(game)
+    ring, _ = place_ring(game)
+    st = game.stage
+    st.ship.x += 3000
+    st.recentre()
+    e = flying_enemy(game, "infantry", ring.x + 260, ring.y + 5)
+    goal = (ring.x - 260, ring.y)
+    for _ in range(int(12 / DT)):
+        e.brain.goal = goal
+        e.brain.fly(DT)
+        st.step(DT)
+        assert edge_gap(e, ring) > -0.01
+    assert dist(e.x, e.y, *goal) < 20
+
+
+def test_points_inside_the_ring_are_moved_outside_for_enemies():
+    game = campaign()
+    x, y = clear_space(game)
+    ring, _ = place_ring(game)
+    st = game.stage
+    px, py = st.keep_out(ring.x + 30, ring.y, 10)
+    assert dist(px, py, ring.x, ring.y) == pytest.approx(ring.wall + 10) and py == pytest.approx(ring.y)
+    assert st.keep_out(ring.x + 400, ring.y, 10) == (ring.x + 400, ring.y)
+    fx, fy = game.battle.free_point(ring.x, ring.y - 50, 12)
+    assert dist(fx, fy, ring.x, ring.y) >= ring.wall + 12 - 1e-6
+    # A broken ring keeps nobody out.
+    st.damage_structure(ring, 1e9, ring.x + RING_RADIUS, ring.y)
+    assert st.keep_out(ring.x + 30, ring.y, 10) == (ring.x + 30, ring.y)
+
+
+def test_the_ring_cant_be_placed_round_an_enemy():
+    game = campaign()
+    x, y = clear_space(game)
+    e = flying_enemy(game, "infantry", x + 60, y)
+    e.brain = None                # it just sits there
+    ring, events = place_ring(game)
+    assert ring is None and ("no_room", "ring", "ENEMY") in events and game.haul.rings_carried == 1
+    e.x = x + RING_RADIUS + RING_HOOP + 60
+    ring, events = place_ring(game)
+    assert ring is not None
+
+
+def test_keep_out_can_be_turned_off_in_the_data_file(monkeypatch):
+    monkeypatch.setitem(HAUL, "keep_out", False)
+    game = campaign()
+    x, y = clear_space(game)
+    e = flying_enemy(game, "infantry", x + 60, y)
+    e.brain = None
+    ring, _ = place_ring(game)
+    assert ring is not None and ring.wall == 0
+    step(game, 0.5)
+    assert edge_gap(e, ring) < 0
+
+
 def test_the_ring_row_repairs_a_damaged_ring():
     game = campaign(100_000)
     x, y = clear_space(game)
@@ -479,16 +580,54 @@ def test_when_a_rock_crumbles_its_drills_float_free_instead_of_being_used_up():
     assert math.hypot(a.vx, a.vy) < 0.5 * DRILLS["float_speed"]
 
 
-def test_fly_over_a_loose_drill_to_pick_it_up():
+def test_a_loose_drill_in_reach_flies_in_to_your_ship():
     game = campaign()
     worked_out_rock_with_drills(game, 1)
     step(game, 0.5)
     st = game.stage
     ld = st.loose[0]
     assert game.drills_carried == 0
+    # Just out of reach it stays where it is.
+    st.ship.x, st.ship.y = ld.x + DRILLS["float_pickup"] + 30, ld.y
+    step(game, 0.3)
+    assert not ld.homing and game.drills_carried == 0 and st.loose == [ld]
+    # In reach it comes to you: no need to touch it.
     st.ship.x, st.ship.y = ld.x + DRILLS["float_pickup"] - 2, ld.y
     events = step(game)
+    assert ld.homing and st.loose == [ld]
+    events += step(game, 1.0)
     assert ("drill_back", ld.uid) in events and game.drills_carried == 1 and not st.loose
+
+
+def test_a_loose_drill_stuck_under_an_asteroid_still_comes_to_you():
+    game = campaign()
+    worked_out_rock_with_drills(game, 1)
+    step(game, 0.5)
+    st = game.stage
+    f = st.field
+    ld = st.loose[0]
+    ld.vx = ld.vy = 0.0
+    # The biggest rock sits right on top of it; your ship can only get as near as the rock's edge.
+    i = rock(game, ld.x, ld.y, 96)
+    st.ship.x, st.ship.y = ld.x + float(f.r[i]) + 14, ld.y
+    st.ship.vx = st.ship.vy = 0.0
+    assert dist(st.ship.x, st.ship.y, ld.x, ld.y) > DRILLS["float_grab"] + 20
+    events = step(game, 1.0)
+    assert ("drill_back", ld.uid) in events and game.drills_carried == 1
+
+
+def test_a_drill_flying_in_keeps_up_with_a_ship_that_flies_off():
+    game = campaign()
+    worked_out_rock_with_drills(game, 1)
+    step(game, 0.5)
+    st = game.stage
+    ld = st.loose[0]
+    st.ship.x, st.ship.y = ld.x + DRILLS["float_pickup"] - 5, ld.y
+    st.ship.vx, st.ship.vy = 0.0, 0.0
+    step(game)
+    assert ld.homing
+    events = step(game, 2.0, Controls(forward=True, aim=90.0))     # straight away from it
+    assert ("drill_back", ld.uid) in events
 
 
 def test_loose_drills_get_an_arrow_at_the_screen_edge():
@@ -514,7 +653,8 @@ def test_a_towed_rock_that_crumbles_lets_go():
     st.ship.x -= 0
     game.rocks[i].left = 0.0
     step(game, 0.5)
-    assert f.gone[i] and game.haul.rock < 0 and len(st.loose) == 1
+    # Its drill pops off (and, this near your ship, flies straight in to you).
+    assert f.gone[i] and game.haul.rock < 0 and len(st.loose) + game.drills_carried == 1
 
 
 # ------------------------------------------------------------ the numbers
@@ -523,7 +663,7 @@ def test_a_towed_rock_that_crumbles_lets_go():
 def test_hauling_numbers_live_in_the_data_files_and_the_tuning_menu():
     for key in HAUL:
         assert key == "about" or f"`{key}`" in HAUL["about"]
-    for key in ("float_speed", "float_damper", "float_pickup"):
+    for key in ("float_speed", "float_damper", "float_pickup", "float_pull", "float_grab"):
         assert f"`{key}`" in DRILLS["about"]
     for key in ("max_size", "repair_price", "repair_restores"):
         assert f"`{key}`" in SHOP["about"]

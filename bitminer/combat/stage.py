@@ -288,6 +288,8 @@ class Structure:
     lift: float = 0.0            # a drill: how far its centre sits from its asteroid's centre
     host: "Structure | None" = None   # a sentry on the collector ring: hits on it hurt the ring instead
     hoop: float = 0.0            # the collector ring: shots hit only its band, `radius` +- this
+    wall: float = 0.0            # the collector ring: enemy hulls are kept this far from its centre (0: no wall)
+    ward: float = 0.0            # seconds until its wall next sparks where an enemy presses on it
 
 
 class Stage:
@@ -949,6 +951,7 @@ class Stage:
             t.clock += dt
             t.since_hit += dt
             t.flash = max(0.0, t.flash - dt * 8)
+            t.ward = max(0.0, t.ward - dt)
         self.structures = [t for t in self.structures if t.alive]
         if self.collide_bodies:
             self._separate_enemies()
@@ -956,6 +959,7 @@ class Stage:
                 self._collide_ship_enemies()
         if self.field is not None:
             self._collide_enemy_rocks()
+        self._wall_enemies()
 
         self.ship_flash = max(0.0, self.ship_flash - dt * 6)
         self.shield_show = max(0.0, self.shield_show - dt)
@@ -1088,6 +1092,62 @@ class Stage:
                     e.vy -= j * inv_e * ny
                     f.vx[i] += j * inv_a * nx
                     f.vy[i] += j * inv_a * ny
+
+    def keep_out(self, x: float, y: float, r: float = 0.0) -> tuple[float, float]:
+        """The nearest point to (x, y) where an enemy hull `r` across is outside every walled
+        structure (the collector ring)."""
+        for t in self.structures:
+            if not t.alive or t.wall <= 0:
+                continue
+            R = t.wall + r
+            dx, dy = x - t.x, y - t.y
+            d = math.hypot(dx, dy)
+            if d < R:
+                nx, ny = (dx / d, dy / d) if d > 1e-6 else (0.0, 1.0)
+                x, y = t.x + nx * R, t.y + ny * R
+        return x, y
+
+    def wall_ahead(self, x: float, y: float, ux: float, uy: float, ahead: float, r: float):
+        """The walled structure a hull `r` across at (x, y) would fly into within `ahead` along
+        (ux, uy), or None. One it is already against only counts if that way leads further in."""
+        for t in self.structures:
+            if not t.alive or t.wall <= 0:
+                continue
+            R = t.wall + r - 0.5
+            cx, cy = t.x - x, t.y - y
+            b = cx * ux + cy * uy
+            if b <= 0:
+                continue
+            across = cx * cx + cy * cy - b * b
+            if across >= R * R:
+                continue
+            if b - math.sqrt(R * R - across) <= ahead:
+                return t
+        return None
+
+    def _wall_enemies(self) -> None:
+        """Enemy hulls can't cross a walled structure (the collector ring): one that reaches it is
+        held at its edge and slides round, and a shove into it stops there. The wall sparks."""
+        for t in self.structures:
+            if not t.alive or t.wall <= 0:
+                continue
+            for e in self.enemies:
+                if not e.alive or e.kind == "mothership":
+                    continue
+                R = t.wall + e.body_r
+                dx, dy = e.x - t.x, e.y - t.y
+                d = math.hypot(dx, dy)
+                if d >= R:
+                    continue
+                nx, ny = (dx / d, dy / d) if d > 1e-6 else (0.0, 1.0)
+                e.x, e.y = t.x + nx * R, t.y + ny * R
+                inward = e.vx * nx + e.vy * ny
+                if inward < 0:
+                    e.vx -= inward * nx
+                    e.vy -= inward * ny
+                if t.ward <= 0 and R - d > 0.25:
+                    t.ward = 0.12
+                    self.anims.append(Anim("flare", ("player",), 2, 16, t.x + nx * t.wall, t.y + ny * t.wall))
 
     def rock_hit(self, x0: float, y0: float, x1: float, y1: float, pad: float = 0.0):
         """Where the path from (x0, y0) to (x1, y1) first touches a rock: (x, y, rock) or None."""
