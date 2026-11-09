@@ -153,9 +153,13 @@ def detail_pane(det: Detail, credits: int, blink: bool = True, w: int = 190, h: 
         cw = (w - 16 - gap * (n - 1)) // n
         tallest = max((S.tight(s.art).height + 3 if s.art is not None else 0) for s in det.steps)
         ch = 16 + tallest + 9 * max(len(s.value.split("\n")) if s.value else 0 for s in det.steps) + 2
+        if spots is not None:
+            spots["steps"] = []
         for i, st in enumerate(det.steps):
             card = _step_card(st, cw, ch, blink)
             img.alpha_composite(card, (8 + i * (cw + gap), y))
+            if spots is not None:
+                spots["steps"].append((8 + i * (cw + gap), y, cw, ch + 12))
             if st.state == "owned":
                 p = pixfont.render("OWNED", "ion")
             else:
@@ -166,8 +170,9 @@ def detail_pane(det: Detail, credits: int, blink: bool = True, w: int = 190, h: 
         _text(img, label, 8, y, "hud_dim")
         x = 70
         x += _text(img, now, x, y, "hud_text") + 4
-        x += _text(img, ">", x, y, "hud_dim") + 4
-        _text(img, nxt, x, y, "ion_hi")
+        if nxt:
+            x += _text(img, ">", x, y, "hud_dim") + 4
+            _text(img, nxt, x, y, "ion_hi")
         y += 10
     for label, now, nxt in det.bars:
         _text(img, label, 8, y, "hud_dim")
@@ -198,10 +203,15 @@ def detail_pane(det: Detail, credits: int, blink: bool = True, w: int = 190, h: 
     return img
 
 
+HINTS = [("1-3", "PAGE"), ("W/S", "PICK"), ("ENTER", "BUY"), ("E", "LEAVE")]
+
+
 def station_panel(page: str, rows: list[Row], selected: int, det: Detail, credits: int,
-                  warn: bool = False, blink: bool = True, spots: dict | None = None) -> Image.Image:
-    """The whole station screen. `spots` gets the boxes (x, y, w, h) of its tabs, rows and buy
-    button, for the mouse."""
+                  warn: bool = False, blink: bool = True, spots: dict | None = None,
+                  hints: list[tuple[str, str]] | None = None) -> Image.Image:
+    """The whole station screen. `spots` gets the boxes (x, y, w, h) of its tabs, rows, the detail
+    pane's level or tier cards ("steps") and the buy button, for the mouse. `hints` are the key hints
+    along the bottom."""
     spots = {} if spots is None else spots
     spots["tabs"], spots["rows"] = [], []
     img = hud.panel(PANEL_W, PANEL_H, "console_dark", 238)
@@ -241,9 +251,10 @@ def station_panel(page: str, rows: list[Row], selected: int, det: Detail, credit
     img.alpha_composite(pane, (LIST_W + 12, 40))
     bx, by, bw, bh = pane_spots["buy"]
     spots["buy"] = (LIST_W + 12 + bx, 40 + by, bw, bh)
+    spots["steps"] = [(LIST_W + 12 + sx, 40 + sy, sw, sh) for sx, sy, sw, sh in pane_spots.get("steps", [])]
     # Key hints.
     x = 8
-    for key, word in (("1-3", "PAGE"), ("W/S", "PICK"), ("ENTER", "BUY"), ("E", "LEAVE")):
+    for key, word in hints or HINTS:
         x += _text(img, key, x, PANEL_H - 12, "hud_text") + 4
         x += _text(img, word, x, PANEL_H - 12, "hud_dim") + 10
     return img

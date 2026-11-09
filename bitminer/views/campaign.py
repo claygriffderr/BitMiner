@@ -1,8 +1,10 @@
 """Secure the Base: the big map, home base and its space station, your drills and the mothership's waves.
 
 Everything the combat sandbox has (WASD, mouse, 1 to 4, P, Tab), plus F to set a drill on the
-asteroid next to you, E at the station to open its shop (E or Esc closes it), and N to call the
-next wave now. Backspace starts a new game, on a map as big as the MAP SIZE slider says.
+asteroid next to you, E at the station to open its shop (E or Esc closes it), Shift to boost, G
+(held) to lay mines, R to place a sentry, and N to call the next wave now. = adds test credits
+(`test_credits` in shop.json) so every item can be tried. Backspace starts a new game, on a map as
+big as the MAP SIZE slider says.
 """
 
 from __future__ import annotations
@@ -14,12 +16,16 @@ from ..flight import Controls
 from ..graphics.renderer import VIEW
 from ..ui.campaign_hud import CampaignHud
 from ..ui import station_screen
+from ..combat.shop import SENTRY_ITEMS
 from ..ui.station_screen import StationScreen
 from .sandbox import SandboxView
 
 PAGE_KEYS = {arcade.key.KEY_1: 0, arcade.key.KEY_2: 1, arcade.key.KEY_3: 2}
 PICK_KEYS = {arcade.key.W: -1, arcade.key.UP: -1, arcade.key.S: 1, arcade.key.DOWN: 1}
 BUY_KEYS = (arcade.key.ENTER, arcade.key.RETURN, arcade.key.NUM_ENTER, arcade.key.SPACE)
+TIER_KEYS = {arcade.key.A: -1, arcade.key.LEFT: -1, arcade.key.D: 1, arcade.key.RIGHT: 1}
+BOOST_KEYS = (arcade.key.LSHIFT, arcade.key.RSHIFT)
+TEST_CREDIT_KEYS = (arcade.key.EQUAL, arcade.key.PLUS, arcade.key.NUM_ADD)
 
 
 class CampaignView(SandboxView):
@@ -28,6 +34,8 @@ class CampaignView(SandboxView):
 
     def __init__(self, window):
         self._set_drill = False
+        self._place_sentry = False
+        self.held: set[int] = set()       # Shift and G, while held
         self._size = None
         self.station = StationScreen(window.textures)
         super().__init__(window)
@@ -40,6 +48,7 @@ class CampaignView(SandboxView):
         self.sparks.world = world
         self.smoke.world = world
         self._set_drill = False
+        self._place_sentry = False
         return game
 
     # ------------------------------------------------------------ input
@@ -58,7 +67,21 @@ class CampaignView(SandboxView):
         if key == arcade.key.F and not self.paused:
             self._set_drill = True
             return True
+        if key == arcade.key.R and not self.paused:
+            self._place_sentry = True
+            return True
+        if key in BOOST_KEYS or key == arcade.key.G:
+            self.held.add(key)
+            return True
+        if key in TEST_CREDIT_KEYS:
+            self._test_credits()
+            return True
         return super().on_key_press(key, modifiers)
+
+    def _test_credits(self) -> None:
+        amount = self.sb.test_credits()
+        if amount:
+            self.hud.notice(f"TEST CREDITS +{amount:,}")
 
     def _station_key(self, key) -> bool:
         game = self.sb
@@ -71,21 +94,38 @@ class CampaignView(SandboxView):
             st.move(PICK_KEYS[key])
         elif key in BUY_KEYS:
             game.shop.buy(st.item)
+        elif key in TIER_KEYS and st.item in SENTRY_ITEMS:
+            game.shop.pick_tier(st.item, game.shop.tier[st.item] + TIER_KEYS[key])
         elif key == arcade.key.P:
             self.paused = not self.paused
             self.hud.show_paused(self.paused)
+        elif key in TEST_CREDIT_KEYS:
+            self._test_credits()
         return True
 
     def on_key_release(self, key, modifiers):
         self.down.discard(key)
+        self.held.discard(key)
+
+    def on_hide_view(self):
+        super().on_hide_view()
+        self.held.clear()
+
+    def on_deactivate(self):
+        super().on_deactivate()
+        self.held.clear()
 
     def on_mouse_press(self, x, y, button, modifiers):
         game = self.sb
         if game.station_open:
             w = self.window
             if button == arcade.MOUSE_BUTTON_LEFT and not w.panel.contains(*w.mouse):
-                if self.station.click(*w.mouse) == "buy":
-                    game.shop.buy(self.station.item)
+                hit = self.station.click(*w.mouse)
+                item = self.station.item
+                if hit == "buy":
+                    game.shop.buy(item)
+                elif hit and hit.startswith("tier") and item in SENTRY_ITEMS:
+                    game.shop.pick_tier(item, int(hit[4:]))
             return
         super().on_mouse_press(x, y, button, modifiers)
 
@@ -102,14 +142,24 @@ class CampaignView(SandboxView):
         if self.args.smoke:
             controls, trigger, cursor, set_drill = autopilot(self.sb, self.clock)
             self._set_drill = self._set_drill or set_drill
+            keys = self.sb._autopilot.keys
+            self._place_sentry = self._place_sentry or keys["sentry"]
+            self._auto_keys = keys
             return controls, trigger, cursor
         if self.sb.station_open:
             return Controls(), False, self.cursor_world()
         return super().pilot()
 
     def step_game(self, dt: float, controls: Controls, trigger: bool, cursor) -> list:
-        events = self.sb.step(dt, controls, trigger, cursor, set_drill=self._set_drill)
-        self._set_drill = False
+        if self.args.smoke:
+            keys = getattr(self, "_auto_keys", {})
+            boost, mines = keys.get("boost", False), keys.get("mines", False)
+        else:
+            boost = any(k in self.held for k in BOOST_KEYS)
+            mines = arcade.key.G in self.held
+        events = self.sb.step(dt, controls, trigger, cursor, set_drill=self._set_drill, boost=boost,
+                              lay_mines=mines, place_sentry=self._place_sentry)
+        self._set_drill = self._place_sentry = False
         if self.window.settings.tuning.map_size != self._size:
             self._size = self.window.settings.tuning.map_size
             self.hud.notice(f"MAP SIZE {self._size:.0f}X ON THE NEXT NEW GAME (BACKSPACE)")

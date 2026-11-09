@@ -28,6 +28,8 @@ SANDBOX: dict = _COMBAT["sandbox"]
 HUNT: dict = _COMBAT["hunt"]
 FLEET: dict = _COMBAT["fleet"]
 DRILLS: dict = _COMBAT["drills"]
+MINES: dict = _COMBAT["mines"]
+SENTRIES: dict = _COMBAT["sentries"]
 PLAYDATA: dict = _COMBAT["playdata"]
 
 SHOP_FILE = DATA_FILE.parent / "shop.json"

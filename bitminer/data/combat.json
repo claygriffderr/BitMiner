@@ -90,6 +90,29 @@
     "crumble_fps": 8,
     "base_radius": 30
   },
+  "mines": {
+    "about": "Secure the Base's explosive mines. Hold G to lay the mines you carry, one every `lay_gap` seconds, just behind your ship: hold still for a pile (each lands up to `pile_spread` pixels from the spot) or keep flying for a line. A mine arms `arm_time` seconds after it is laid. It goes off only when an enemy flies right over it (its hull within `trigger` pixels of the mine's centre), flashes for `fuse` seconds and blows up: every enemy within `blast_radius` takes up to `damage`, falling off evenly from the middle to nothing at the edge, and is shoved by up to `push`. Enemies don't steer round mines. Your own mines never hurt you, your drills or your sentries. The blast's art plays `blast_frames` frames at `blast_fps`.",
+    "lay_gap": 0.3,
+    "pile_spread": 6,
+    "behind": 10,
+    "arm_time": 0.6,
+    "trigger": 4,
+    "fuse": 0.12,
+    "blast_radius": 64,
+    "damage": 150,
+    "push": 260,
+    "blast_frames": 7,
+    "blast_fps": 14
+  },
+  "sentries": {
+    "about": "Secure the Base's sentries. Buy one at the station (each kind comes in tiers 1 to 3), then press R to place the next one you carry where your ship is, clear of asteroids, home base and other sentries by `clearance` pixels. A sentry never moves. Its turret turns at `turn_rate` degrees a second toward the nearest enemy within `range` that it can see past asteroids, and fires once it points within `aim_cone` degrees. Each tier has more `health` (enemy shots hit anything within `radius`). Enemies that come across a sentry while they don't know where you are raid it like a drill. Auto cannon: `fire_rate` shots a second of `damage`, `spread` degrees of scatter. Sniper: one shot of `damage` every 1 / `fire_rate` seconds that goes through `pierce` enemies. Missile: `salvo` missiles `gap` seconds apart, then `reload` seconds; each does `damage` with the player's missile blast. Shots travel at `speed` and lead their target by its speed.",
+    "radius": 8,
+    "clearance": 18,
+    "max_out": 16,
+    "auto": {"health": [160, 280, 420], "range": 230, "turn_rate": 260, "aim_cone": 8, "fire_rate": 5, "damage": 4, "spread": 3, "speed": 460},
+    "sniper": {"health": [200, 340, 520], "range": 400, "turn_rate": 140, "aim_cone": 2, "fire_rate": 0.6, "damage": 34, "pierce": 3, "speed": 1100},
+    "missile": {"health": [240, 400, 600], "range": 440, "turn_rate": 180, "aim_cone": 25, "salvo": 4, "gap": 0.35, "reload": 4.5, "damage": 30}
+  },
   "sandbox": {
     "about": "`respawn` seconds after your ship goes down you are back, blinking (unhittable) for `invulnerable` seconds. Edge arrows point at up to `arrows` enemies within `arrow_range` that are off screen.",
     "respawn": 2.5,

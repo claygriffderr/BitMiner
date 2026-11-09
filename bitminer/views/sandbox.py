@@ -235,12 +235,15 @@ class SandboxView(arcade.View):
         ship = st.ship
         ox, oy = self.camera.offset()
         blink = st.invulnerable > 0 and int(st.invulnerable * BLINK_HZ) % 2 == 1
+        gear = getattr(self.sb, "gear", None)          # Secure the Base's upgrades
+        boost = gear.levels["boost"] if gear is not None and gear.boosting else 0
         return FrameView(
             cam_x=cx, cam_y=cy, cam_ux=ship.ux + ox, cam_uy=ship.uy + oy,
             ship_x=ship.x, ship_y=ship.y, ship_angle=ship.angle,
             boosters=self._controls.boosters(), flame_frame=int(self.flame_clock * FLAME_FPS),
             flash=st.ship_flash, crt=w.settings.display.crt, ship_visible=st.ship_visible and not blink,
-            stage=self.drawer, missiles=st.missiles_loaded if "missile" in self.sb.arsenal.owned else 0)
+            stage=self.drawer, missiles=st.missiles_loaded if "missile" in self.sb.arsenal.owned else 0,
+            boost=boost)
 
     def on_draw(self):
         w = self.window
