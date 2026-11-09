@@ -5,7 +5,8 @@ for a pile, keep flying for a line). A mine arms after a moment, and goes off on
 flies right over it: every enemy in its blast takes damage that falls off evenly from the middle
 to the edge. Your mines never hurt you, your drills or your sentries.
 
-Sentries: press R to place the next sentry you carry where your ship is. It never moves, turns
+Sentries: press R to place the next sentry you carry where your ship is (inside your collector ring,
+R mounts it on the ring instead: see `haul.py`). It never moves, turns
 its turret toward the nearest enemy it can see in range and fires its own shots (diamond pellets,
 ring-headed sniper rounds or darker missiles). Enemies can damage and destroy it.
 
@@ -143,7 +144,7 @@ class Defenses:
         st = self.stage
         clear = float(SENTRIES["clearance"])
         r = float(SENTRIES["radius"])
-        if len(self.sentries) >= int(SENTRIES["max_out"]):
+        if sum(1 for s in self.sentries if s.host is None) >= int(SENTRIES["max_out"]):
             return "MAX"
         f = st.field
         if f is not None and len(f):
@@ -153,6 +154,11 @@ class Defenses:
                     return "ROCK"
         for t in st.structures:
             if not t.alive:
+                continue
+            if t.hoop > 0:
+                # The collector ring: only its band (and the mounts on it) is in the way.
+                if abs(dist(x, y, t.x, t.y) - t.radius) < t.hoop + r + clear:
+                    return "CROWDED"
                 continue
             gap = t.radius + r + clear if t.kind != "drill" else r + clear
             if dist(x, y, t.x, t.y) < gap:

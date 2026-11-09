@@ -266,8 +266,9 @@ class Lane:
 
 @dataclass
 class Structure:
-    """Something of yours that sits still and can be shot at: a drill on an asteroid, or home base."""
-    kind: str                    # "drill" or "base"
+    """Something of yours that sits still and can be shot at: a drill on an asteroid, home base, a
+    sentry or the collector ring."""
+    kind: str                    # "drill", "base", "sentry" or "ring"
     x: float
     y: float
     radius: float                # enemy shots within this of the centre hit it
@@ -285,6 +286,8 @@ class Structure:
     side: float = 0.0            # a drill: which way it faces out from its asteroid (heading, degrees)
     working: bool = False        # a drill: dug something this step
     lift: float = 0.0            # a drill: how far its centre sits from its asteroid's centre
+    host: "Structure | None" = None   # a sentry on the collector ring: hits on it hurt the ring instead
+    hoop: float = 0.0            # the collector ring: shots hit only its band, `radius` +- this
 
 
 class Stage:
@@ -340,6 +343,8 @@ class Stage:
         self.damage_mult = {"auto": 1.0, "sniper": 1.0}   # weapon upgrades
         self.sniper_pierce = int(WEAPONS["sniper"]["pierce"])
         self.mines: list = []        # your laid mines (see combat/defenses.py)
+        self.loose: list = []        # drills floating free after their asteroid crumbled (combat/haul.py)
+        self.haul = None             # the lasso and collector ring (combat/haul.py), for drawing
         self.ship_down = False
         self.invulnerable = 0.0      # seconds left of the blink after a respawn
         self.quiet = 99.0            # seconds since you last took damage
@@ -349,7 +354,7 @@ class Stage:
 
     def clear(self) -> None:
         for name in ("enemies", "shots", "missiles", "beams", "anims", "rings", "chunks", "streaks",
-                     "lanes", "structures", "timeline", "mines"):
+                     "lanes", "structures", "timeline", "mines", "loose"):
             getattr(self, name).clear()
         self.screen_flash = 0.0
         self.ship_flash = 0.0
@@ -420,7 +425,7 @@ class Stage:
             if (dx or dy) and e.brain is not None and hasattr(e.brain, "moved"):
                 e.brain.moved(dx, dy)
         for group in (self.shots, self.missiles, self.anims, self.rings, self.chunks, self.lanes, self.structures,
-                      self.mines):
+                      self.mines, self.loose):
             for o in group:
                 shift(o)
         for b in self.beams:
@@ -680,11 +685,14 @@ class Stage:
         e.vy += vy / e.mass
 
     def damage_structure(self, t: Structure, amount: float, x: float, y: float, source: str = "") -> None:
-        """An enemy hit one of your drills (or your base)."""
+        """An enemy hit one of your drills (or your base, a sentry or the collector ring)."""
         if not t.alive:
             return
         t.flash = 1.0
         t.since_hit = 0.0
+        if t.host is not None:
+            self.damage_structure(t.host, amount, x, y, source)     # a mounted sentry: the ring takes it
+            return
         if t.immune:
             return
         amount = min(amount, t.health)
@@ -694,6 +702,9 @@ class Stage:
             t.health = 0.0
             t.alive = False
             self.events.append(("struct_lost", t.kind, t.uid))
+            if t.hoop > 0:
+                self._ring_break(t)
+                return
             self.anims.append(Anim("explosion", ("player", 49, t.uid % 3), 6, 12, t.x, t.y))
             self.anims.append(Anim("explosion", ("player", 33, 1), 6, 14, t.x + 6, t.y - 4, delay=0.15))
             self.rings.append(Ring("player", t.x, t.y, 6, 36, 0.4))
@@ -701,6 +712,23 @@ class Stage:
                 self._chunk("steel", t.x, t.y, 30, 110)
             self.sparks.burst("ion_spark", t.x, t.y, 0.0, math.pi, 20, (30, 120), (0.3, 0.7))
             self.smoke.burst("smoke", t.x, t.y, 0.0, math.pi, 14, (10, 50), (0.6, 1.2))
+
+    def _ring_break(self, t: Structure) -> None:
+        """The collector ring breaks apart: blasts all round its band, one after another, and a
+        spray of hull pieces."""
+        n = 12
+        for i in range(n):
+            a = math.tau * i / n + self.rng.uniform(-0.15, 0.15)
+            x, y = t.x + math.cos(a) * t.radius, t.y + math.sin(a) * t.radius
+            delay = 0.06 * i + self.rng.uniform(0.0, 0.05)
+            size = 49 if i % 3 == 0 else 33
+            self.anims.append(Anim("explosion", ("player", size, i % 3), 6, 12, x, y, delay=delay))
+            for _ in range(2):
+                self._chunk("steel", x, y, 30, 120)
+            self.sparks.burst("ion_spark", x, y, a, 1.0, 6, (30, 120), (0.3, 0.7))
+            self.smoke.burst("smoke", x, y, a, 1.2, 5, (10, 50), (0.6, 1.2))
+        self.kick += 0.8
+        self.screen_flash = max(self.screen_flash, 0.3)
 
     def damage_player(self, amount: float, x: float, y: float, kind: str = "shot", push: float = 0.0,
                       source: str = "") -> str:
@@ -1184,14 +1212,23 @@ class Stage:
 
     def _enemy_shot_hits(self, s: Shot, x0: float, y0: float) -> bool:
         for t in self.structures:
-            if t.alive and self._segment_near(x0, y0, s.x, s.y, t.x, t.y, t.radius + s.pad):
+            if not t.alive:
+                continue
+            if t.hoop > 0:
+                if not self._crosses_band(x0, y0, s.x, s.y, t, s.pad):
+                    continue
+                px, py = s.x, s.y
+                back = math.atan2(-s.vy, -s.vx)
+            elif self._segment_near(x0, y0, s.x, s.y, t.x, t.y, t.radius + s.pad):
                 back = math.atan2(-s.vy, -s.vx)
                 ux, uy, d = s.x - t.x, s.y - t.y, max(1e-6, math.hypot(s.x - t.x, s.y - t.y))
                 px, py = t.x + ux / d * t.radius, t.y + uy / d * t.radius
-                self.anims.append(Anim("flare", ("danger",), 2, 20, px, py))
-                self.sparks.burst("danger_spark", px, py, back, 0.9, 3, (20, 70), (0.1, 0.3))
-                self.damage_structure(t, s.damage, px, py, source=s.kind)
-                return False
+            else:
+                continue
+            self.anims.append(Anim("flare", ("danger",), 2, 20, px, py))
+            self.sparks.burst("danger_spark", px, py, back, 0.9, 3, (20, 70), (0.1, 0.3))
+            self.damage_structure(t, s.damage, px, py, source=s.kind)
+            return False
         ship = self.ship
         if not self.ship_visible:
             return True
@@ -1205,6 +1242,18 @@ class Stage:
                 self.damage_player(s.damage, px, py, push=s.damage * 1.5)
                 return False
         return True
+
+    @staticmethod
+    def _crosses_band(x0, y0, x1, y1, t: Structure, pad: float) -> bool:
+        """Whether a shot's path from (x0, y0) to (x1, y1) touches the collector ring's band."""
+        lo, hi = t.radius - t.hoop - pad, t.radius + t.hoop + pad
+        d1 = math.hypot(x1 - t.x, y1 - t.y)
+        if lo <= d1 <= hi:
+            return True
+        d0 = math.hypot(x0 - t.x, y0 - t.y)
+        if (d0 - hi) * (d1 - hi) < 0 or (d0 - lo) * (d1 - lo) < 0:
+            return True         # it stepped right across the band
+        return False
 
     @staticmethod
     def _segment_near(x0, y0, x1, y1, cx, cy, r) -> bool:

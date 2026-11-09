@@ -7,7 +7,11 @@ asteroids; you fly past to load it and sell it at home base, then spend the cred
 station (home base) on more drills, weapons, missiles, health, 3-level upgrades (`gear.py`),
 explosive mines and sentries (`defenses.py`). Every kill pays credits too.
 
-Sprint 8 version: the mothership launches waves but doesn't fight back yet and can't be destroyed,
+Sprint 10 adds hauling (`haul.py`): the lasso tows asteroids and throws them at enemies, the
+collector ring holds up to 4 asteroids and sells their drills' ore by itself, and drills float free
+when their asteroid crumbles instead of being used up.
+
+Sprint 10 version: the mothership launches waves but doesn't fight back yet and can't be destroyed,
 home base can't be destroyed either, and there are no lives (you start again at home base).
 """
 
@@ -28,6 +32,7 @@ from .hunt import Fleet, Hunt
 from .shop import Shop
 from .defenses import Defenses
 from .gear import Gear
+from .haul import Haul
 from .specs import DRILLS, ENEMIES, SANDBOX, SHOP, WEAPONS
 from .stage import Anim, Stage, Structure, dist
 
@@ -95,6 +100,8 @@ class Campaign:
             self.arsenal.own("missile")
         self.gear = Gear(st)          # no shield, starting armor: upgrades come from the station
         self.defenses = Defenses(self)
+        self.haul = Haul(self)
+        st.haul = self.haul           # so the stage drawer can show the beam, the ring and loose drills
         self.credits = int(start.get("credits", 0))
         self.drills_carried = int(start.get("drills", 1))
         self.drills: list[Structure] = []
@@ -252,7 +259,7 @@ class Campaign:
             self.cargo = 0.0
 
     def _crumble(self, i: int, drills: list[Structure]) -> None:
-        """A worked-out asteroid breaks up and takes its drills with it."""
+        """A worked-out asteroid breaks up. Its drills pop off and float free, to be picked up again."""
         st = self.stage
         f = st.field
         x, y = self._near_ship((float(f.x[i]), float(f.y[i])))
@@ -262,10 +269,13 @@ class Campaign:
                              int(DRILLS["crumble_frames"]), float(DRILLS["crumble_fps"]), x, y))
         n = int(f.size[i]) // 4
         st.smoke.burst("dust", x, y, 0.0, math.pi, n, (6, 26), (0.6, 1.4))
+        rock_v = (float(f.vx[i]), float(f.vy[i]))
         for d in drills:
             d.alive = False
             self.drills.remove(d)
-            st.events.append(("drill_used", d.uid))
+            self.haul.float_free(d, rock_v)
+        if self.haul.rock == i:
+            self.haul.let_go(quiet=True)
         f.remove(i)
         st.events.append(("crumble", i, int(f.size[i])))
 
@@ -314,9 +324,10 @@ class Campaign:
 
     def step(self, dt: float, controls: Controls, trigger: bool, cursor: tuple[float, float] | None = None,
              set_drill: bool = False, boost: bool = False, lay_mines: bool = False,
-             place_sentry: bool = False) -> list:
+             place_sentry: bool = False, lasso: bool = False, ring_key: bool = False) -> list:
         """Advance by dt seconds. Returns what happened on the stage this step (its events).
-        `boost` and `lay_mines` are held keys (Shift, G); `set_drill` and `place_sentry` presses (F, R)."""
+        `boost`, `lay_mines` and `ring_key` are held keys (Shift, G, T); `set_drill`, `place_sentry` and
+        `lasso` presses (F, R, Q)."""
         dt = min(max(dt, 0.0), MAX_FRAME)
         st = self.stage
         st.events = []
@@ -336,7 +347,7 @@ class Campaign:
             st.ship.vy *= keep
             controls = Controls()
             trigger = False
-            set_drill = place_sentry = lay_mines = boost = False
+            set_drill = place_sentry = lay_mines = boost = lasso = ring_key = False
         controls = hold_still(self.arsenal, controls, dt)
         moving = controls.forward or controls.back or controls.left or controls.right
         self.gear.step_boost(dt, boost and moving and not st.ship_down)
@@ -348,6 +359,7 @@ class Campaign:
                 st.ship.step(controls, tuning, h, world.width, world.height)
                 self.impacts += field.collide_ship(st.ship, st.ship_mass, tuning.bounce)
             field.step(h)
+            self.haul.constrain(h)
         for hit in self.impacts:
             dv = hit.impulse / st.ship_mass
             if dv >= 12:
@@ -358,8 +370,9 @@ class Campaign:
         st.recentre()
         if set_drill:
             self.place_drill()
-        if place_sentry:
+        if place_sentry and self.haul.mount_sentry() is None:
             self.defenses.place_sentry()
+        self.haul.step(dt, lasso, ring_key)
         self.fleet.step(dt)
         self.battle.step(dt)
         self.arsenal.step(dt, trigger and not st.ship_down, cursor)
@@ -379,6 +392,7 @@ class Campaign:
             self.downs += 1
             self.respawn_in = float(SANDBOX["respawn"])
             self.cargo = 0.0            # what you were carrying is lost with the ship
+            self.haul.let_go(quiet=True)
             self.close_station()
         self._down = st.ship_down
         if self.station_open and not self.near_station():
@@ -406,14 +420,19 @@ class Campaign:
                 "missiles": self.stage.missiles_total, "known": self.hunt.known, "out": self.enemies_out(),
                 "upgrades": dict(self.gear.levels), "mines": self.defenses.mines_carried,
                 "mines_out": len(self.stage.mines), "sentries": [(s.gun, s.tier) for s in self.defenses.sentries],
-                "boost": round(self.gear.boost, 2)}
+                "boost": round(self.gear.boost, 2), **self.haul.log()}
 
     def marks(self, centre: tuple[float, float], half: tuple[float, float]) -> list:
-        """Home base and each of your drills that are off screen: (dx, dy, kind, structure) from
-        the view centre, for the dim arrows at the screen edge."""
+        """Home base, your collector ring, each of your drills and each drill floating free that are
+        off screen: (dx, dy, kind, thing) from the view centre, for the dim arrows at the screen edge."""
         cx, cy = centre
         out = []
-        for t in [self.base] + self.drills:
+        ring = [self.haul.ring] if self.haul.has_ring() else []
+        for ld in self.stage.loose:
+            dx, dy = ld.x - cx, ld.y - cy
+            if abs(dx) > half[0] or abs(dy) > half[1]:
+                out.append((dx, dy, "loose", ld))
+        for t in [self.base] + ring + self.drills:
             if not t.alive:
                 continue
             dx, dy = t.x - cx, t.y - cy

@@ -3,7 +3,8 @@
 Enemies only know where you are while one of them can see you (or you hit one of them); then every
 one of them knows. When none has seen you for a few seconds they lose you: each group flies to
 where you were last seen, searches round it, and eventually gives up and flies home to the
-mothership. They also remember any of your drills they come across, and raid those.
+mothership. They also remember any of your drills, sentries or collector ring they come across, and
+raid those.
 
 The mothership launches each wave from its hangar once only a few enemies are still out.
 
@@ -55,6 +56,18 @@ class Hunt:
             return None
         return ms.x, ms.y
 
+    def aim_point(self, m: Structure, x: float, y: float) -> tuple[float, float]:
+        """Where a group at (x, y) raiding `m` aims: its centre, or for the collector ring the nearest
+        point on its band (its middle is open space)."""
+        mx, my = self.near_copy((m.x, m.y), (x, y))
+        if m.hoop > 0:
+            dx, dy = x - mx, y - my
+            d = math.hypot(dx, dy)
+            if d > 1e-6:
+                return mx + dx / d * m.radius, my + dy / d * m.radius
+            return mx, my + m.radius
+        return mx, my
+
     def nearest_drill(self, x: float, y: float) -> Structure | None:
         best, bd = None, math.inf
         for m in self.drills.values():
@@ -93,11 +106,12 @@ class Hunt:
                 self.known = False
                 self.rev += 1
                 st.events.append(("lost",))
-        # Drills and sentries they fly past, they remember.
+        # Drills, sentries and the collector ring they fly past, they remember.
         for t in st.structures:
-            if t.kind not in ("drill", "sentry") or not t.alive or t.uid in self.drills:
+            if t.kind not in ("drill", "sentry", "ring") or not t.alive or t.uid in self.drills:
                 continue
-            if any(dist(e.x, e.y, t.x, t.y) <= sight for e in flying):
+            reach = sight + (t.radius if t.hoop else 0.0)      # the ring is seen from its band
+            if any(dist(e.x, e.y, t.x, t.y) <= reach for e in flying):
                 self.drills[t.uid] = t
                 st.events.append(("drill_found", t.uid))
         for uid in [u for u, m in self.drills.items() if not m.alive]:
@@ -132,7 +146,7 @@ class Task:
             if m is not None:
                 self.kind = "raid"
                 self.drill = m
-                mx, my = hunt.near_copy((m.x, m.y), (cx, cy))
+                mx, my = hunt.aim_point(m, cx, cy)
                 return mx, my, "raid"
             if self.kind == "raid":
                 self.kind = "travel"

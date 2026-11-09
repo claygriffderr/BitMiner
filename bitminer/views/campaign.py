@@ -2,7 +2,9 @@
 
 Everything the combat sandbox has (WASD, mouse, 1 to 4, P, Tab), plus F to set a drill on the
 asteroid next to you, E at the station to open its shop (E or Esc closes it), Shift to boost, G
-(held) to lay mines, R to place a sentry, and N to call the next wave now. = adds test credits
+(held) to lay mines, R to place a sentry (inside your collector ring, to mount it there), Q to grab
+or let go of an asteroid with the lasso, T (hold, then let go) to place the collector ring, and N
+to call the next wave now. = adds test credits
 (`test_credits` in shop.json) so every item can be tried. Backspace starts a new game, on a map as
 big as the MAP SIZE slider says.
 """
@@ -35,7 +37,8 @@ class CampaignView(SandboxView):
     def __init__(self, window):
         self._set_drill = False
         self._place_sentry = False
-        self.held: set[int] = set()       # Shift and G, while held
+        self._lasso = False
+        self.held: set[int] = set()       # Shift, G and T, while held
         self._size = None
         self.station = StationScreen(window.textures)
         super().__init__(window)
@@ -49,6 +52,7 @@ class CampaignView(SandboxView):
         self.smoke.world = world
         self._set_drill = False
         self._place_sentry = False
+        self._lasso = False
         return game
 
     # ------------------------------------------------------------ input
@@ -70,7 +74,10 @@ class CampaignView(SandboxView):
         if key == arcade.key.R and not self.paused:
             self._place_sentry = True
             return True
-        if key in BOOST_KEYS or key == arcade.key.G:
+        if key == arcade.key.Q and not self.paused:
+            self._lasso = True
+            return True
+        if key in BOOST_KEYS or key in (arcade.key.G, arcade.key.T):
             self.held.add(key)
             return True
         if key in TEST_CREDIT_KEYS:
@@ -144,6 +151,7 @@ class CampaignView(SandboxView):
             self._set_drill = self._set_drill or set_drill
             keys = self.sb._autopilot.keys
             self._place_sentry = self._place_sentry or keys["sentry"]
+            self._lasso = self._lasso or keys.get("lasso", False)
             self._auto_keys = keys
             return controls, trigger, cursor
         if self.sb.station_open:
@@ -151,15 +159,17 @@ class CampaignView(SandboxView):
         return super().pilot()
 
     def step_game(self, dt: float, controls: Controls, trigger: bool, cursor) -> list:
+        keys = getattr(self, "_auto_keys", {})
         if self.args.smoke:
-            keys = getattr(self, "_auto_keys", {})
             boost, mines = keys.get("boost", False), keys.get("mines", False)
         else:
             boost = any(k in self.held for k in BOOST_KEYS)
             mines = arcade.key.G in self.held
+        ring_key = keys.get("ring", False) if self.args.smoke else arcade.key.T in self.held
         events = self.sb.step(dt, controls, trigger, cursor, set_drill=self._set_drill, boost=boost,
-                              lay_mines=mines, place_sentry=self._place_sentry)
-        self._set_drill = self._place_sentry = False
+                              lay_mines=mines, place_sentry=self._place_sentry, lasso=self._lasso,
+                              ring_key=ring_key)
+        self._set_drill = self._place_sentry = self._lasso = False
         if self.window.settings.tuning.map_size != self._size:
             self._size = self.window.settings.tuning.map_size
             self.hud.notice(f"MAP SIZE {self._size:.0f}X ON THE NEXT NEW GAME (BACKSPACE)")

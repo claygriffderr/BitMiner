@@ -20,7 +20,7 @@ from .text import TextLayer
 
 PANEL_X = 6
 PANEL_W = 152
-ROW_H = 21
+ROW_H = 20          # 14 sliders fit above the help line
 HEADER_H = 19
 FOOTER_H = 34
 TRACK_X = PANEL_X + 8

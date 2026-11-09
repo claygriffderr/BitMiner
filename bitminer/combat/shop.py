@@ -4,8 +4,10 @@ these offers, and tests buy things directly.
 
 - Items: drills, the sniper and laser (once each), missiles six at a time, health, mines one at a
   time, and sentries (each kind in tiers 1 to 3, the tier picked on the station screen).
-- Upgrades: shield, armor and boost on the Ship page, and the auto cannon and the sniper (once
-  you own it) on the Weapons page, each 3 levels bought in order (see `gear.py`).
+- Upgrades: shield, armor and boost on the Ship page, the auto cannon and the sniper (once you own
+  it) on the Weapons page, and the lasso on the Tools page, each 3 levels bought in order (see
+  `gear.py`).
+- The collector ring (Tools page): one at a time. Once yours is placed and hurt, its row repairs it.
 
 Prices and limits come from `data/shop.json`.
 """
@@ -20,7 +22,7 @@ PAGES = ("ship", "weapons", "tools")
 PAGE_ITEMS = {
     "ship": ("shield", "armor", "boost", "repair"),
     "weapons": ("auto", "sniper", "missiles", "laser"),
-    "tools": ("drill", "mine", "sentry_auto", "sentry_sniper", "sentry_missile"),
+    "tools": ("drill", "mine", "sentry_auto", "sentry_sniper", "sentry_missile", "lasso", "ring"),
 }
 SOON: set[str] = set()
 WEAPON_OF = {"sniper": "sniper", "laser": "laser", "missiles": "missile", "auto": "auto"}
@@ -60,7 +62,7 @@ class Shop:
 
     def is_upgrade(self, key: str) -> bool:
         """Is this row an upgrade right now? (The sniper row sells the gun until you own it.)"""
-        if key in ("shield", "armor", "boost", "auto"):
+        if key in ("shield", "armor", "boost", "auto", "lasso"):
             return True
         return key == "sniper" and "sniper" in self.game.arsenal.owned
 
@@ -105,6 +107,16 @@ class Shop:
             if st.hull >= st.hull_max - 1e-6:
                 return Offer(key, None, "FULL")
             return Offer(key, price)
+        if key == "ring":
+            haul = g.haul
+            if haul.has_ring():
+                ring = haul.ring
+                if ring.health >= ring.max_health - 1e-6:
+                    return Offer(key, None, "OWNED")
+                return Offer(key, int(self.item(key)["repair_price"]))     # its row repairs it
+            if haul.rings_carried >= int(self.item(key).get("max", 1)):
+                return Offer(key, None, "OWNED")
+            return Offer(key, price)
         return Offer(key, None, "SOON")
 
     def offers(self, page: str) -> list[Offer]:
@@ -119,7 +131,12 @@ class Shop:
         return 0 if total is None else total
 
     def drills_owned(self) -> int:
-        return self.game.drills_carried + len(self.game.drills)
+        """Carried, set, and floating free waiting to be picked up."""
+        return self.game.drills_carried + len(self.game.drills) + len(self.game.stage.loose)
+
+    def repairing_ring(self) -> bool:
+        """The ring row repairs your ring rather than selling one."""
+        return self.game.haul.has_ring()
 
     # ------------------------------------------------------------ buying
 
@@ -154,6 +171,12 @@ class Shop:
             return True
         elif key == "repair":
             st.hull = min(st.hull_max, st.hull + st.hull_max * float(self.item(key)["restores"]))
+        elif key == "ring":
+            if self.repairing_ring():
+                g.haul.repair_ring(float(self.item(key)["repair_restores"]))
+                g.note(("bought", "ring_repair", price))
+                return True
+            g.haul.rings_carried += 1
         g.note(("bought", key, price))
         return True
 

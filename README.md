@@ -19,15 +19,18 @@ Early development, built in short sprints with a playable or reviewable demo at 
 6. Station and item art (design review)
 7. Drills and the station shop
 8. Upgrades, sentries and mines
-9. The full loop
-10. Adaptive AI
-11. Polish and share
+9. Lasso and collector ring art (design review)
+10. Lasso and collector ring
+11. The full loop
+12. Adaptive AI
+13. Polish and share
 
 ## Play it
 
-Windows: download `BitMiner-UpgradesAndDefenses-windows.zip` from the
-[upgrades-and-defenses release](https://github.com/claygriffderr/BitMiner/releases/tag/upgrades-and-defenses), unzip it
+Windows: download `BitMiner-LassoAndRing-windows.zip` from the
+[lasso-and-ring release](https://github.com/claygriffderr/BitMiner/releases/tag/lasso-and-ring), unzip it
 and run `BitMiner.exe`. Each push to a sprint branch rebuilds it. (Earlier sprints stay on the
+[upgrades-and-defenses](https://github.com/claygriffderr/BitMiner/releases/tag/upgrades-and-defenses),
 [drills-and-shop](https://github.com/claygriffderr/BitMiner/releases/tag/drills-and-shop),
 [secure-the-base](https://github.com/claygriffderr/BitMiner/releases/tag/secure-the-base),
 [combat-sandbox](https://github.com/claygriffderr/BitMiner/releases/tag/combat-sandbox),
@@ -52,13 +55,19 @@ goes back to it.
   the mothership across the map. You start with one drill, the auto cannon and no shield. F sets a
   drill on an ore asteroid next to you (several can share one); a drill fills its gold bar and
   waits for you to fly past and load it, and you sell the ore at home base. Asteroids crack as they
-  empty, then crumble away and take their drills with them. Press E at the station to open its
+  empty, then crumble away; their drills float free, and flying over one puts it back in your
+  hold. Press E at the station to open its
   shop (the game keeps running): more drills, the sniper, missiles six at a time, the laser, hull
   repairs, 3-level upgrades (shield, armor, boost, auto cannon and sniper), explosive mines and
-  sentries. Shift boosts once you own it. Hold G to lay the mines you carry behind you (hold still
+  sentries, the lasso and the collector ring. Shift boosts once you own it. Hold G to lay the mines you carry behind you (hold still
   for a pile, keep flying for a line); they go off when an enemy flies over one and never hurt you
   or your base. R sets down a sentry you carry (auto, sniper or missile, 3 tiers each): it turns
-  and fires at enemies in range, and enemies can destroy it. Every enemy you destroy pays credits
+  and fires at enemies in range, and enemies can destroy it. Q grabs the nearest asteroid with
+  the lasso (3 levels: small, medium, then large rocks) and tows it on a beam of fixed length; Q
+  again lets go, and the rock keeps its speed, so a fast throw hurts what it hits. Hold T to see
+  where the collector ring would go and let go of T to place it round you: it holds up to 4
+  asteroids you tow in, sells their drills' ore by itself whenever a drill fills, and R inside it
+  mounts sentries on its 4 mounts (they share the ring's health and break with it). Every enemy you destroy pays credits
   on the spot, more for the dangerous ones, and = adds 1,000 test credits so every item can be
   tried. The laser charges for 2 seconds while you hold fire. Enemies only know where you
   are while one of them can see you: then they all do, and when they lose you they search where you
@@ -79,7 +88,8 @@ goes back to it.
 Starting values for the sliders live in `bitminer/data/tuning.json`, every weapon, enemy and
 defense number in `bitminer/data/weapons.json`, and how enemies fight and when waves arrive in
 `bitminer/data/combat.json` (with drills, the mothership's waves and how enemies search in its `drills`,
-`fleet` and `hunt` blocks, and mines and sentries in its `mines` and `sentries` blocks), the station shop's prices,
+`fleet` and `hunt` blocks, mines and sentries in its `mines` and `sentries` blocks, and the lasso and collector
+ring in its `haul` block), the station shop's prices,
 the upgrade levels, your starting kit and what each kill pays in `bitminer/data/shop.json`,
 and the big map in `bitminer/data/map.json`, so none of them are fixed in code. Each game or sandbox fight is also written
 to a `playdata` folder next to the settings file, for the adaptive AI to learn from later.

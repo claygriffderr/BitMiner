@@ -1,4 +1,5 @@
-"""Your ship's upgrades in Secure the Base: shield, armor, boost, and auto cannon and sniper power.
+"""Your ship's upgrades in Secure the Base: shield, armor, boost, auto cannon and sniper power, and
+the lasso (how big an asteroid it tows: see `haul.py`).
 
 Each has 3 levels, bought in order at the station (`shop.py`). This module holds the levels you
 own, puts them into effect on the stage, and runs the boost meter. Every number comes from the
@@ -12,7 +13,7 @@ from dataclasses import replace
 from ..settings import Tuning
 from .specs import SHOP
 
-UPGRADES = ("shield", "armor", "boost", "auto", "sniper")
+UPGRADES = ("shield", "armor", "boost", "auto", "sniper", "lasso")
 MAX_LEVEL = 3
 
 

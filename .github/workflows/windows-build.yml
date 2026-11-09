@@ -3,7 +3,7 @@ name: Windows build
 
 on:
   push:
-    branches: [main, "sprint-*"]
+    branches: [main, "sprint-*", "claude/project-thread-ubgssg"]
   workflow_dispatch:
 
 permissions:
@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RELEASE_TAG: upgrades-and-defenses
-  ZIP: dist/BitMiner-UpgradesAndDefenses-windows.zip
+  RELEASE_TAG: lasso-and-ring
+  ZIP: dist/BitMiner-LassoAndRing-windows.zip
 
 jobs:
   windows:
@@ -75,7 +75,7 @@ jobs:
       - name: Keep the zip
         uses: actions/upload-artifact@v4
         with:
-          name: BitMiner-UpgradesAndDefenses-windows
+          name: BitMiner-LassoAndRing-windows
           path: ${{ env.ZIP }}
 
       - name: Publish the download
@@ -87,4 +87,4 @@ jobs:
           gh release delete $env:RELEASE_TAG --yes --cleanup-tag 2>$null
           $LASTEXITCODE = 0
           gh release create $env:RELEASE_TAG $env:ZIP --prerelease --target $env:GITHUB_SHA `
-            --title "BitMiner Upgrades, Sentries and Mines (sprint 8)" --notes-file packaging/release_notes.md
+            --title "BitMiner Lasso and Collector Ring (sprint 10)" --notes-file packaging/release_notes.md

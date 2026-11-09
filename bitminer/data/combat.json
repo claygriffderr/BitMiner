@@ -71,7 +71,7 @@
     ]
   },
   "drills": {
-    "about": "Secure the Base. Press F near an asteroid (within `reach` of its edge) to set one of the drills you carry on the side facing you. Only asteroids at least `min_size` across take one, and with `ore_only` only those with ore (the glinting ones). Several drills can share an asteroid, at least `spacing` pixels apart round its edge. An asteroid holds `ore_per_area` ore per square pixel of its picture, so big ones last longer (a 24 px rock about 58, a 48 px one about 230, a 96 px one about 920), and every drill on it digs from that same ore. A drill digs `dig_rate` ore a second into its hold, up to `hold`, and stops while the hold is full. Fly within `pickup` of a drill to load its ore (your ship carries `cargo`), and within `unload` of home base to sell it for `credit_per_ore` credits each. As an asteroid empties it cracks: stage 1, 2 and 3 cracks show once `crack_at` of its ore is gone. Once it is empty and its drills have been unloaded it crumbles away (`crumble_frames` frames at `crumble_fps`) and takes its drills with it. Enemies can destroy a drill: it has `health`, and enemy shots hit anything within `radius` of it. Home base is `base_radius` across for hits and can't be destroyed yet.",
+    "about": "Secure the Base. Press F near an asteroid (within `reach` of its edge) to set one of the drills you carry on the side facing you. Only asteroids at least `min_size` across take one, and with `ore_only` only those with ore (the glinting ones). Several drills can share an asteroid, at least `spacing` pixels apart round its edge. An asteroid holds `ore_per_area` ore per square pixel of its picture, so big ones last longer (a 24 px rock about 58, a 48 px one about 230, a 96 px one about 920), and every drill on it digs from that same ore. A drill digs `dig_rate` ore a second into its hold, up to `hold`, and stops while the hold is full. Fly within `pickup` of a drill to load its ore (your ship carries `cargo`), and within `unload` of home base to sell it for `credit_per_ore` credits each. As an asteroid empties it cracks: stage 1, 2 and 3 cracks show once `crack_at` of its ore is gone. Once it is empty and its drills have been unloaded it crumbles away (`crumble_frames` frames at `crumble_fps`). Its drills aren't used up: each pops off at `float_speed` and drifts, slowing down (`float_damper`, higher stops sooner), until you fly within `float_pickup` of it and it goes back in your hold. Enemies can destroy a drill: it has `health`, and enemy shots hit anything within `radius` of it. Home base is `base_radius` across for hits and can't be destroyed yet.",
     "health": 900,
     "radius": 8,
     "reach": 40,
@@ -88,6 +88,9 @@
     "crack_at": [0.25, 0.55, 0.85],
     "crumble_frames": 9,
     "crumble_fps": 8,
+    "float_speed": 22,
+    "float_damper": 0.5,
+    "float_pickup": 22,
     "base_radius": 30
   },
   "mines": {
@@ -112,6 +115,25 @@
     "auto": {"health": [160, 280, 420], "range": 230, "turn_rate": 260, "aim_cone": 8, "fire_rate": 5, "damage": 4, "spread": 3, "speed": 460},
     "sniper": {"health": [200, 340, 520], "range": 400, "turn_rate": 140, "aim_cone": 2, "fire_rate": 0.6, "damage": 34, "pierce": 3, "speed": 1100},
     "missile": {"health": [240, 400, 600], "range": 440, "turn_rate": 180, "aim_cone": 25, "salvo": 4, "gap": 0.35, "reload": 4.5, "damage": 30}
+  },
+  "haul": {
+    "about": "The lasso and the collector ring (sprint 10). Lasso: press Q to grab the nearest asteroid whose edge is within `grab_reach` of your ship, if your lasso level can tow one that big (shop.json); press Q again to let go. The beam leaves your ship `tail` pixels behind its centre and holds the rock's edge `beam` pixels from there, never nearer or further, so the rock can't hit you (after a grab it eases in to that length over about `latch_time` seconds). The rock pulls on your ship by its weight times the TOW WEIGHT slider. A rock you tow or let go of hurts an enemy it hits while it moves faster than `throw_min_speed` (relative to the enemy): `throw_damage` x its weight x the speed above that minimum x the THROW POWER slider, never more than `mothership_cap` to the mothership. Each hit takes `hit_slow` of the rock's speed and shoves the enemy; the same rock can't hit the same enemy again for `hit_cooldown` seconds. Thrown rocks never hurt your own things. Ring: holds up to 4 asteroids (`slots`). Hold T to see where it would go (centred on your ship) and let go of T to place it there: it needs the band and its mounts clear of asteroids and other structures, and to be at least `clear_of_base` from home base's centre. A loose asteroid that drifts inside its field (or that you let go of there) is caught and eased into a free spot at `ease` (higher is quicker) up to `ease_speed`. When a drill on a held asteroid fills its hold (or its asteroid runs dry), its ore sells straight away for drills' `credit_per_ore`, and a gold spark flies to the nearest collector node in `pulse_time` seconds (the node stays lit for `node_lit`). Enemies remember a ring they come across and raid it; their shots hit its band. It has `health`; repair it at the station. Press R inside it to mount the next sentry you carry on the next free mount (top, right, bottom, left): mounted sentries have no health of their own, hits on them hurt the ring, and they're destroyed with it. Asteroids and drills inside a broken ring stay where they are. How big the ring is comes from its art (art/haul.py).",
+    "grab_reach": 70,
+    "tail": 12,
+    "beam": 34,
+    "latch_time": 0.25,
+    "throw_min_speed": 90,
+    "throw_damage": 0.2,
+    "mothership_cap": 60,
+    "hit_slow": 0.45,
+    "hit_cooldown": 0.5,
+    "slots": 4,
+    "health": 3000,
+    "clear_of_base": 240,
+    "ease": 2.5,
+    "ease_speed": 90,
+    "pulse_time": 0.6,
+    "node_lit": 0.9
   },
   "sandbox": {
     "about": "`respawn` seconds after your ship goes down you are back, blinking (unhittable) for `invulnerable` seconds. Edge arrows point at up to `arrows` enemies within `arrow_range` that are off screen.",

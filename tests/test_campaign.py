@@ -375,7 +375,7 @@ def test_an_asteroid_cracks_in_stages_as_it_empties():
     assert ("crack", i, 3) in events
 
 
-def test_a_worked_out_asteroid_crumbles_once_unloaded_and_takes_its_drills():
+def test_a_worked_out_asteroid_crumbles_once_unloaded_and_its_drills_float_free():
     game = campaign()
     game.drills_carried = 2
     i = put_ship_by_ore_rock(game, 48)
@@ -395,6 +395,8 @@ def test_a_worked_out_asteroid_crumbles_once_unloaded_and_takes_its_drills():
     events = idle(game, 0.2)
     assert any(ev[0] == "crumble" and ev[1] == i for ev in events)
     assert f.gone[i] and not game.drills and not a.alive and not b.alive and i not in game.rocks
+    # Not used up: they float free (the one under your ship goes straight back in your hold).
+    assert len(st.loose) + game.drills_carried == 2 and game.shop.drills_owned() == 2
     assert any(an.name == "crumble" for an in st.anims)
     # Nothing can find it any more: no lookups, no collisions, no new drill.
     idx, _, _ = f.near(float(f.x[i]), float(f.y[i]), 10, 10)
