@@ -1,6 +1,6 @@
 """The space station screen: Ship, Weapons and Tools pages with 3-level upgrade panels.
 
-It opens when you fly into the station's dock. The game keeps running behind it, so it sits on
+It opens when you press E at the station. The game keeps running behind it, so it sits on
 the right of the screen and leaves your ship, the station and anything coming at you in view.
 Everything is drawn at the game's 640x360 resolution. The rows and prices here are only for the
 mockups; the game will read them from its data files.

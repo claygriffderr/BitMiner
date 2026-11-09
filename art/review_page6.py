@@ -49,12 +49,12 @@ def build(dest: Path) -> Path:
   <figcaption class="cap">
     <div class="toggle" role="group" aria-label="Station page">{buttons}</div>
     <h3>The station screen</h3>
-    <p class="muted">Fly into the dock and this opens on the right, so your ship, the station and anything heading your way stay in view (the game keeps running). Each page lists what you can buy on the left. The selected row opens on the right with its 3 levels as steps, what the next level changes, and the buy button. Prices in gold are ones you can afford; grey ones you can't yet. On the Tools page, enemies have turned up, so a warning flashes at the top.</p>
+    <p class="muted">Fly up to the station and press E, and this opens on the right, so your ship, the station and anything heading your way stay in view (the game keeps running). Each page lists what you can buy on the left. The selected row opens on the right with its 3 levels as steps, what the next level changes, and the buy button. Prices in gold are ones you can afford; grey ones you can't yet. On the Tools page, enemies have turned up, so a warning flashes at the top.</p>
   </figcaption>
 </figure>"""
 
     def option(rec: bool, title: str, media: str, text: str) -> str:
-        chip = '<span class="chip">Recommended</span>' if rec else ""
+        chip = '<span class="chip">Your pick</span>' if rec else ""
         return f"""<div class="option{' rec' if rec else ''}">{chip}<h3>{esc(title)}</h3><div class="imgs">{media}</div><p class="muted">{text}</p></div>"""
 
     sentry_q = f"""
@@ -79,8 +79,8 @@ def build(dest: Path) -> Path:
 
     keys = [("Shift (hold)", "Boost, once you've bought it"), ("F", "Set a drill on the asteroid you're next to"),
             ("G (hold)", "Lay mines one after another"), ("R", "Place a sentry where you are"),
-            ("Fly into the dock", "Open the station screen"), ("1, 2, 3", "Station pages"),
-            ("W / S and Enter", "Pick a row and buy (or click)"), ("E or fly away", "Leave the station")]
+            ("E at the station", "Open the station screen"), ("1, 2, 3", "Station pages"),
+            ("W / S and Enter", "Pick a row and buy (or click)"), ("E again", "Leave the station")]
     keys_html = "".join(f"<li><kbd>{esc(k)}</kbd><span class=\"muted\">{esc(v)}</span></li>" for k, v in keys)
 
     page = f"""<title>BitMiner Station Art</title>
@@ -113,7 +113,7 @@ def build(dest: Path) -> Path:
 <section id="decisions">
   <div class="section-head">
     <h2>Your decisions</h2>
-    <p class="muted">Two places where your notes could go either way. I've built the recommended option into the rest of the page.</p>
+    <p class="muted">You picked A for both, so that's what goes into the game.</p>
   </div>
   <div class="decisions">{sentry_q}{laser_q}</div>
 </section>
@@ -197,8 +197,8 @@ def build(dest: Path) -> Path:
 
 <section id="keys">
   <div class="panel next">
-    <h2>Keys (proposed)</h2>
-    <p class="muted">Shift for boost is from the design doc. The rest are my suggestions for sprints 7 and 8, and all of them can change.</p>
+    <h2>Keys</h2>
+    <p class="muted">These are the keys you approved. The station only opens when you press E, never just by flying into it.</p>
     <ul class="keys">{keys_html}</ul>
   </div>
 </section>
@@ -206,7 +206,7 @@ def build(dest: Path) -> Path:
 <section id="next">
   <div class="panel next">
     <h2>What's next</h2>
-    <p>Once you've signed off on these, sprint 7 builds drills and the station shop into the game: start with one drill and the auto cannon, mine and sell, then buy drills, the sniper, missiles, the laser and health. Sprint 8 adds the upgrades, sentries and mines.</p>
+    <p>You've signed off on these, so sprint 7 now builds drills and the station shop into the game: start with one drill and the auto cannon, mine and sell, then buy drills, the sniper, missiles, the laser and health. Sprint 8 adds the upgrades, sentries and mines.</p>
     <p class="muted">Everything here is drawn by code in the repo, so changes are quick. The source is in <code>art/items.py</code>, <code>art/station.py</code> and <code>art/hud.py</code>.</p>
   </div>
 </section>
