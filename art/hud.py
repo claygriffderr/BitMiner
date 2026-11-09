@@ -410,6 +410,9 @@ def item_icon(kind: str, greyed: bool = False) -> Image.Image:
         img = items.mine(0, "armed")
     elif kind.startswith("sentry_"):
         img = sprites.tight(items.sentry(kind.split("_", 1)[1], 1))
+    elif kind in ("lasso", "ring"):
+        from . import haul
+        img = haul.icon(kind)
     else:
         raise KeyError(kind)
     if greyed:
