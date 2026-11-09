@@ -69,6 +69,11 @@ PALETTE: dict[str, tuple[int, int, int, int]] = {
     "steel_mid": _hex("#7b8494"),
     "steel_light": _hex("#b4bcc8"),
     "steel_hi": _hex("#e9eef4"),
+    # Sentry shots, option B on the sprint 6 review: your shot shapes in a deeper blue
+    "sentry_dark": _hex("#1d3a9e"),
+    "sentry": _hex("#3d6dff"),
+    "sentry_hi": _hex("#93b4ff"),
+    "sentry_white": _hex("#e3ecff"),
     # Danger
     "danger_dark": _hex("#7a0b2a"),
     "danger_red": _hex("#ff2448"),
@@ -99,6 +104,9 @@ GLOW: dict[str, float] = {
     "ion": 0.45,
     "ion_hi": 0.55,
     "ion_white": 0.6,
+    "sentry": 0.4,
+    "sentry_hi": 0.5,
+    "sentry_white": 0.55,
     "alien_green_hi": 0.35,
     "alien_eye": 0.6,
     "alien_purple_hi": 0.25,
