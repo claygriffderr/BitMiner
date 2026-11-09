@@ -1,0 +1,38 @@
+{
+  "about": "The space station's shop in Secure the Base. Fly within `station.reach` of home base and press E to open it; your ship brakes to a stop while it is open (`station.brake`, higher stops faster) but the game keeps running, and it warns you when an enemy is within `station.warn_range`. You start with `start.credits` credits, `start.drills` drills, the weapons in `start.weapons`, `start.missiles` missiles and no shield. Each item's `price` is in credits. Drills: you can own up to `max` at once (carried plus set), and with `free_when_broke` the station gives you one free when you have none left and can't afford one, so you can never get stuck. Missiles come `pack` at a time, up to `max` carried. Health restores `restores` of your hull. The upgrades, mines and sentries show in the shop but arrive in the next sprint.",
+  "station": {
+    "reach": 80,
+    "brake": 4.0,
+    "warn_range": 520
+  },
+  "start": {
+    "credits": 0,
+    "drills": 1,
+    "weapons": [
+      "auto"
+    ],
+    "missiles": 0
+  },
+  "items": {
+    "drill": {
+      "price": 150,
+      "max": 8,
+      "free_when_broke": true
+    },
+    "sniper": {
+      "price": 200
+    },
+    "missiles": {
+      "price": 60,
+      "pack": 6,
+      "max": 18
+    },
+    "laser": {
+      "price": 1500
+    },
+    "repair": {
+      "price": 100,
+      "restores": 0.5
+    }
+  }
+}

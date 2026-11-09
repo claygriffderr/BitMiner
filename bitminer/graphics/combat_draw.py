@@ -17,13 +17,14 @@ import math
 import arcade
 
 from art import effects as E
+from art import items as I
 from art import sprites as S
 from art.palette import rgba
 
 from ..combat.stage import Stage
 from ..combat import shapes
 from ..flight import forward_vector
-from .images import light_twin, silhouette
+from .images import CANCEL_STEPS, CHARGE_STEPS, crumble_frames, laser_charge, light_twin, silhouette
 from .textures import tex
 
 LANE_STEP = 4            # lane and beam lengths are rounded to this many pixels, to share textures
@@ -32,7 +33,9 @@ MOTHERSHIP_FPS = 6
 CHARGE_LEVELS = 4        # mothership laser charge picture steps
 BAR_WIDTH = {"infantry": 14, "rapid": 12, "guard": 18, "tank": 26}
 BAR_SHOW = 2.5           # seconds a health bar stays after a hit
-MINE_BAR = 14            # width of a mine's health and ore bars
+DRILL_BAR = 13           # width of a drill's health bar
+DRILL_STEPS = 8          # its gold bar fills in this many steps
+DRILL_BAR_UP = 14        # the health bar sits this far above the drill's centre
 # How white a full hit flash turns each hull. Big hulls flash less, or steady fire would bleach them.
 FLASH = {"tank": 0.6, "mothership": 0.2}
 
@@ -143,6 +146,9 @@ class StageDrawer:
         self.light = Pool()
         self.bounds: tuple[float, float, float, float] | None = None   # hulls' world box
         self.k = 1
+        self._crumbles: dict[int, list] = {}     # pictures of asteroids crumbling right now
+        self._crumble_n = 0
+        self._charges: dict[tuple, tuple] = {}   # the laser charge-up, built as it's first needed
 
     # ------------------------------------------------------------ placing sprites
 
@@ -209,15 +215,8 @@ class StageDrawer:
             if st_.kind == "base":
                 frame = int(st_.clock * 2) % 2
                 self._put(self.under, A.get(("base", frame), lambda f=frame: S.home_base(f)), st_.x, st_.y)
-            elif st_.kind == "mine":
-                working = st_.ore_left > 0 and st_.hold < st_.hold_max
-                frame = int(st_.clock * 3) % 2 if working else 1
-                pair = A.get(("drill", frame), lambda f=frame: S.drill(f))
-                self._put(self.under, pair, st_.x, st_.y, st_.side)
-                if st_.flash > 0.02:
-                    white = A.plain(("drill", frame, "flash"), lambda f=frame: silhouette(S.drill(f)))
-                    self.under.add(white, st_.x, st_.y, st_.side, st_.flash * 0.8)
-                self._mine_bars(st_)
+            elif st_.kind == "drill":
+                self._drill(st_)
 
         # Enemy hulls, with the hit flash, laser heat and warp-in on top.
         box = None
@@ -282,6 +281,10 @@ class StageDrawer:
                 L = int(round(b.length)) if b.reach >= b.length else max(2 * LANE_STEP, int(round(b.reach / LANE_STEP)) * LANE_STEP)
                 frame = int(t * 30) % 2
                 pair = A.get(("lsr", L, frame), lambda L=L, f=frame: S.laser_player(L, f))
+                if b.burst > 0 and b.t - b.warmup < b.burst:
+                    # The charged laser opens extra wide, then settles to its usual width.
+                    bf = 0 if b.t - b.warmup < b.burst / 2 else 1
+                    pair = A.get(("lsrb", L, bf), lambda L=L, f=bf: I.laser_burst(L, f))
                 cx, cy = b.x + fx * L / 2, b.y + fy * L / 2
                 if b.firing:
                     self._put(self.over, pair, cx, cy, b.heading)
@@ -327,6 +330,12 @@ class StageDrawer:
                 pair = A.get(("ahit", f), lambda: S.armor_hit(f))
             elif name == "glint":
                 pair = A.get(("glint", f % 2), lambda: S.glint(f % 2))
+            elif name == "crumble":
+                pair = self._crumble(a, f)
+                if pair is None:
+                    continue
+                self._put(self.under, pair, a.x, a.y)
+                continue
             else:
                 continue
             self._put(self.over, pair, a.x, a.y, angle)
@@ -350,31 +359,75 @@ class StageDrawer:
             fade = min(1.0, (BAR_SHOW - e.since_hit) / 0.4)
             self._put(self.over, pair, e.x, e.y + top, alpha=fade)
 
+        self._charge(stage)
+        live = {id(a) for a in stage.anims if a.name == "crumble"}
+        for key in [k for k in self._crumbles if k not in live]:
+            del self._crumbles[key]         # let its pictures go once it has played
         for pool in (self.under, self.hulls, self.over, self.light):
             pool.end()
 
-    def _mine_bars(self, m) -> None:
-        """Health (cyan, pink when low) over ore left in the asteroid (gold), above the rig, plus a
-        blinking pip when its hold has ore waiting for you."""
-        w = MINE_BAR
-        x0 = round(m.x - w / 2)
-        top = round(m.y) + 15
-        put = self.over.add
-        px = self.pixel
+    # ------------------------------------------------------------ your drills and asteroids
 
-        def rect(left: float, bottom: float, rw: float, rh: float, color: str, alpha: float = 1.0) -> None:
-            if rw > 0 and rh > 0:
-                put(px, left + rw / 2, bottom + rh / 2, 0.0, alpha, rgba(color)[:3], (rw, rh))
-        rect(x0 - 1, top - 6, w + 2, 7, "console_black", 0.85)
-        health = m.health / max(1.0, m.max_health)
-        rect(x0, top - 2, w, 2, "console_mid")
-        rect(x0, top - 2, round(w * health), 2, "danger_pink" if health < 0.3 else "ion")
-        ore = m.ore_left / max(1.0, m.ore_max)
-        rect(x0, top - 5, w, 2, "console_mid")
-        rect(x0, top - 5, round(w * ore), 2, "ore")
-        if m.hold >= m.hold_max * 0.25 and int(m.clock * 3) % 2 == 0:
-            rect(x0 + w + 2, top - 5, 2, 2, "ore_hi")
-            self.light.add(px, x0 + w + 3, top - 4, 0.0, 1.0, rgba("ore_hi")[:3], (2, 2))
+    def _drill(self, d) -> None:
+        """A drill standing on its asteroid, its gold bar showing how full its hold is, and its health
+        bar above it."""
+        A = self.art
+        fill = d.hold / max(1.0, d.hold_max)
+        steps = 0 if fill <= 0 else max(1, int(round(fill * DRILL_STEPS)))
+        full = steps >= DRILL_STEPS and fill >= 0.999
+        frame = int(d.clock * (2.5 if full else 3)) % 2 if (d.working or full) else 1
+        share = 1.0 if full else steps / DRILL_STEPS
+        if not full and share >= 1.0:
+            share = (DRILL_STEPS - 0.6) / DRILL_STEPS    # nearly full still looks like it's digging
+        key = ("drill", steps, full, frame)
+        build = lambda s=share, f=frame: I.drill(s, f)
+        self._put(self.under, A.get(key, build), d.x, d.y, d.side)
+        if d.flash > 0.02:
+            white = A.plain(key + ("flash",), lambda b=build: silhouette(b()))
+            self.under.add(white, d.x, d.y, d.side, d.flash * 0.8)
+        health = d.health / max(1.0, d.max_health)
+        hk = int(round(health * (DRILL_BAR - 2)))
+        bar = A.get(("dbar", hk), lambda: I.struct_bar(DRILL_BAR, hk / (DRILL_BAR - 2)))
+        self._put(self.over, bar, d.x, d.y + DRILL_BAR_UP, light_alpha=0.3)
+
+    def _crumble(self, a, f: int):
+        """The frames of an asteroid crumbling away, built when it starts."""
+        frames = self._crumbles.get(id(a))
+        if frames is None:
+            size, variant, ore, wear, sites, seed = a.params
+            pics = crumble_frames(size, variant, ore, wear, sites, seed, a.frames)
+            self._crumble_n += 1
+            frames = []
+            for j, img in enumerate(pics):
+                name = f"crumble{self._crumble_n}_{j}"
+                glow = light_twin(img)
+                frames.append((tex(img, name), tex(glow, name + "_l") if glow is not None else None))
+            self._crumbles[id(a)] = frames
+        return frames[min(f, len(frames) - 1)] if frames else None
+
+    # ------------------------------------------------------------ the laser charge-up
+
+    def _charge(self, stage: Stage) -> None:
+        """Energy drawn in to the ship's nose while the laser charges, or scattering when you let go."""
+        if not stage.ship_visible:
+            return
+        if stage.charging >= 0:
+            step = min(CHARGE_STEPS - 1, int(stage.charging * CHARGE_STEPS))
+            key = ("charge", step)
+            build = lambda s=step: laser_charge(s)
+        elif stage.charge_cancel > 0:
+            step = min(CANCEL_STEPS - 1, int((1.0 - stage.charge_cancel) * CANCEL_STEPS))
+            key = ("charge_x", step)
+            build = lambda s=step: laser_charge(0, cancel=s)
+        else:
+            return
+        pair = self._charges.get(key)
+        if pair is None:
+            img, glow = build()
+            name = "c:" + "_".join(str(k) for k in key)
+            pair = self._charges[key] = (tex(img, name), tex(glow, name + "_l") if glow is not None else None)
+        ship = stage.ship
+        self._put(self.over, pair, ship.x, ship.y, ship.angle)
 
     def _fence(self, arena, glow: float) -> None:
         """A dashed line round the edge of the gallery's free-fly space, one game pixel wide."""

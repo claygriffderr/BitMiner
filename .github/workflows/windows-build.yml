@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RELEASE_TAG: secure-the-base
-  ZIP: dist/BitMiner-SecureTheBase-windows.zip
+  RELEASE_TAG: drills-and-shop
+  ZIP: dist/BitMiner-DrillsAndShop-windows.zip
 
 jobs:
   windows:
@@ -75,7 +75,7 @@ jobs:
       - name: Keep the zip
         uses: actions/upload-artifact@v4
         with:
-          name: BitMiner-SecureTheBase-windows
+          name: BitMiner-DrillsAndShop-windows
           path: ${{ env.ZIP }}
 
       - name: Publish the download
@@ -87,4 +87,4 @@ jobs:
           gh release delete $env:RELEASE_TAG --yes --cleanup-tag 2>$null
           $LASTEXITCODE = 0
           gh release create $env:RELEASE_TAG $env:ZIP --prerelease --target $env:GITHUB_SHA `
-            --title "BitMiner Secure the Base (sprint 5)" --notes-file packaging/release_notes.md
+            --title "BitMiner Drills and the Station Shop (sprint 7)" --notes-file packaging/release_notes.md

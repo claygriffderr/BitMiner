@@ -25,9 +25,10 @@ Early development, built in short sprints with a playable or reviewable demo at 
 
 ## Play it
 
-Windows: download `BitMiner-SecureTheBase-windows.zip` from the
-[secure-the-base release](https://github.com/claygriffderr/BitMiner/releases/tag/secure-the-base), unzip it
+Windows: download `BitMiner-DrillsAndShop-windows.zip` from the
+[drills-and-shop release](https://github.com/claygriffderr/BitMiner/releases/tag/drills-and-shop), unzip it
 and run `BitMiner.exe`. Each push to a sprint branch rebuilds it. (Earlier sprints stay on the
+[secure-the-base](https://github.com/claygriffderr/BitMiner/releases/tag/secure-the-base),
 [combat-sandbox](https://github.com/claygriffderr/BitMiner/releases/tag/combat-sandbox),
 [weapon-gallery](https://github.com/claygriffderr/BitMiner/releases/tag/weapon-gallery) and
 [flight-test](https://github.com/claygriffderr/BitMiner/releases/tag/flight-test) releases.)
@@ -46,13 +47,17 @@ The menu leads to Secure the Base, the flight test, the combat sandbox and the w
 goes back to it.
 
 - Secure the Base: the game itself, so far. A wrap-around map ten times the sandbox each way (the
-  MAP SIZE slider changes it on a new game), home base where you start and the mothership across
-  the map. F sets a mine on an ore asteroid next to you; mines dig until the asteroid runs dry or
-  enemies destroy them, you fly over them to load ore and sell it at home base. Enemies only know
-  where you are while one of them can see you: then they all do, and when they lose you they
-  search where you were last seen, then go home. They raid mines they come across. Each wave
-  launches once only a few of the last are still out. Dim arrows at the screen edge point at home
-  base and each mine, with the mine's health and ore beside it.
+  MAP SIZE slider changes it on a new game), home base and its space station where you start, and
+  the mothership across the map. You start with one drill, the auto cannon and no shield. F sets a
+  drill on an ore asteroid next to you (several can share one); a drill fills its gold bar and
+  waits for you to fly past and load it, and you sell the ore at home base. Asteroids crack as they
+  empty, then crumble away and take their drills with them. Press E at the station to open its
+  shop (the game keeps running): more drills, the sniper, missiles six at a time, the laser and
+  hull repairs. The laser charges for 2 seconds while you hold fire. Enemies only know where you
+  are while one of them can see you: then they all do, and when they lose you they search where you
+  were last seen, then go home. They raid drills they come across. Each wave launches once only a
+  few of the last are still out. Dim arrows at the screen edge point at home base and each drill,
+  with the drill's gold bar and health beside it.
 - Combat sandbox: wave after wave of infantry squads, guards and rapid assault ships in the asteroid
   field. WASD flies, the mouse aims, click fires, 1 to 4 (or the mouse wheel, Q and E) picks the
   weapon, N calls the next wave early, P pauses, Backspace starts a fresh fight. Going down costs
@@ -66,9 +71,9 @@ goes back to it.
 
 Starting values for the sliders live in `bitminer/data/tuning.json`, every weapon, enemy and
 defense number in `bitminer/data/weapons.json`, and how enemies fight and when waves arrive in
-`bitminer/data/combat.json` (with mines, the mothership's waves and how enemies search in its `mines`,
-`fleet` and `hunt` blocks), and the big map in `bitminer/data/map.json`, so none of them are fixed in
-code. Each game or sandbox fight is also written
+`bitminer/data/combat.json` (with drills, the mothership's waves and how enemies search in its `drills`,
+`fleet` and `hunt` blocks), the station shop's prices and your starting kit in `bitminer/data/shop.json`,
+and the big map in `bitminer/data/map.json`, so none of them are fixed in code. Each game or sandbox fight is also written
 to a `playdata` folder next to the settings file, for the adaptive AI to learn from later.
 
 ## Tech
@@ -82,12 +87,12 @@ with pixel-perfect integer scaling.
 - `bitminer/graphics/`: the renderer (outline after rotation, bloom, parallax backdrop, CRT filter)
 - `bitminer/combat/`: the combat simulation (shots, missiles, beams, hits, shields, explosions,
   bumping), the enemy brains and waves (`ai.py`), what the enemy knows and the mothership's waves
-  (`hunt.py`), your weapons (`arsenal.py`), and the sandbox and Secure the Base without graphics
-  (`sandbox.py`, `campaign.py`)
+  (`hunt.py`), your weapons (`arsenal.py`), the station shop (`shop.py`), and the sandbox and
+  Secure the Base without graphics (`sandbox.py`, `campaign.py`)
 - `bitminer/playdata.py`: the play log
 - `bitminer/gallery/`: the weapon gallery's scenes and the director that plays them
 - `bitminer/views/`: the menu, Secure the Base, flight test, combat sandbox and gallery screens
-- `bitminer/ui/`: the tuning panel and HUDs, in the pixel font
+- `bitminer/ui/`: the tuning panel, HUDs, Secure the Base's console and the station screen, in the pixel font
 - `bitminer/settings.py`: the tuning sliders and where your settings are saved
 
 ```

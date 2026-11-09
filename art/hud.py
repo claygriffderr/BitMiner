@@ -444,13 +444,19 @@ def campaign_console(weapons: tuple[str, ...] = ("auto", "sniper", "missiles"), 
                      ammo: float = 1.0, missiles: int = 4, laser_charges: int = 3,
                      shield_level: int = 1, shield: float = 0.7, hull: float = 0.85, armor_level: int = 0,
                      boost_level: int = 1, boost: float = 1.0, drills: int = 1, mines: int = 3, mines_max: int = 5,
-                     sentries: int = 0, downs: int = 0, low_hull: bool = False) -> Image.Image:
+                     sentries: int = 0, downs: int = 0, low_hull: bool = False,
+                     blank: bool = False, spots: dict | None = None) -> Image.Image:
     """The lower-right console once the shop is in.
 
     Only weapons you own show, the current one large. The missile slot shows how many you carry.
     Shield shows its level (or NONE), armor its level in 3 steps, and boost a meter that drains
     while you hold it. A tools row counts the drills, mines and sentries you carry.
+
+    With `blank` the parts that change every moment (the ammo fill, the bars, the counts) are left
+    empty, and `spots` gets where each of them goes, so the game can draw them live on top.
+    Positions are (x, y) from the top left of the returned picture.
     """
+    spots = {} if spots is None else spots
     w, h = 128, 170
     img = Image.new("RGBA", (w, h), pix.CLEAR)
     names = {"auto": "AUTO CANNON", "sniper": "SNIPER", "missiles": "MISSILES", "laser": "LASER"}
@@ -461,49 +467,58 @@ def campaign_console(weapons: tuple[str, ...] = ("auto", "sniper", "missiles"), 
     cur = panel(26, 26)
     fill = Image.new("RGBA", (22, 22), pix.CLEAR)
     fd = ImageDraw.Draw(fill)
-    level = int(round(22 * ammo))
+    level = 0 if blank else int(round(22 * ammo))
+    spots["ammo"] = (w - 26 + 2, y0 + 2, 22, 22)
     if level:
         fd.rectangle([0, 22 - level, 21, 21], fill=rgba("ion_dark")[:3] + (150,))
         fd.line([(0, 22 - level), (21, 22 - level)], fill=rgba("ion"))
     cur.alpha_composite(fill, (2, 2))
     cur.alpha_composite(weapon_icon(WEAPON_OF[current]), (6, 4 if current == "missiles" else 6))
     if current == "missiles":
-        n = pixfont.render(str(missiles), "hud_text" if missiles else "danger_pink_hi")
-        cur.alpha_composite(n, (26 - n.width - 3, 26 - 9))
+        spots["missiles_big"] = (w - 3, y0 + 26 - 9)
+        if not blank:
+            n = pixfont.render(str(missiles), "hud_text" if missiles else "danger_pink_hi")
+            cur.alpha_composite(n, (26 - n.width - 3, 26 - 9))
     if current == "laser":
-        cur.alpha_composite(level_pips(laser_charges, 3, size=2, gap=1, color="ion_hi"), (3, 21))
+        spots["laser_pips"] = (w - 26 + 3, y0 + 21)
+        if not blank:
+            cur.alpha_composite(level_pips(laser_charges, 3, size=2, gap=1, color="ion_hi"), (3, 21))
     img.alpha_composite(cur, (w - 26, y0))
     x = w - 26 - 4
     for kind in [k for k in ("auto", "sniper", "missiles", "laser") if k in weapons and k != current][::-1]:
         small = panel(17, 17, "console_black")
         icon = weapon_icon(WEAPON_OF[kind], greyed=True).resize((9, 9), Image.NEAREST)
         small.alpha_composite(icon, (4, 3))
-        if kind == "missiles":
-            n = pixfont.render(str(missiles), "hud_dim")
-            small.alpha_composite(n, (17 - n.width - 1, 17 - 8))
         x -= 17
+        if kind == "missiles":
+            spots["missiles_small"] = (x + 16, y0 + 9 + 9)
+            if not blank:
+                n = pixfont.render(str(missiles), "hud_dim")
+                small.alpha_composite(n, (17 - n.width - 1, 17 - 8))
         img.alpha_composite(small, (x, y0 + 9))
         x -= 2
     img.alpha_composite(pixfont.render("WPN", "hud_dim"), (x - 16, y0 + 14))
     # Protection block.
     rows = []
+    live = 0.0 if blank else 1.0
     if shield_level:
-        rows.append(("SHLD", bar(64, shield, "ion", "ion_dark"), level_pips(shield_level, 3, size=3, gap=1)))
+        rows.append(("shield", "SHLD", bar(64, shield * live, "ion", "ion_dark"), level_pips(shield_level, 3, size=3, gap=1)))
     else:
-        rows.append(("SHLD", pixfont.render("NONE", "console_edge"), None))
-    rows.append(("HULL", bar(64, hull, "danger_red" if low_hull else "hud_text",
-                             "danger_dark" if low_hull else "console_mid"), None))
-    rows.append(("ARMR", bar(64, armor_level / 3, "hull_hi", "console_mid", segments=3), None))
+        rows.append(("shield_none", "SHLD", pixfont.render("NONE", "console_edge"), None))
+    rows.append(("hull", "HULL", bar(64, hull * live, "danger_red" if low_hull else "hud_text",
+                                     "danger_dark" if low_hull else "console_mid"), None))
+    rows.append(("armor", "ARMR", bar(64, armor_level / 3, "hull_hi", "console_mid", segments=3), None))
     if boost_level:
-        rows.append(("BST", bar(64, boost, "ion_hi", "console_mid"), level_pips(boost_level, 3, size=3, gap=1)))
+        rows.append(("boost", "BST", bar(64, boost * live, "ion_hi", "console_mid"), level_pips(boost_level, 3, size=3, gap=1)))
     prot = panel(w, 6 + 10 * len(rows))
-    for i, (lbl, b, pips) in enumerate(rows):
+    py = y0 + 30
+    for i, (key, lbl, b, pips) in enumerate(rows):
         y = 4 + i * 10
         prot.alpha_composite(pixfont.render(lbl, "hud_dim"), (5, y))
         prot.alpha_composite(b, (w - 70, y + 1))
+        spots[key] = (w - 70, py + y + 1, b.width, b.height)
         if pips is not None:
             prot.alpha_composite(pips, (w - 70 - pips.width - 4, y + 1))
-    py = y0 + 30
     img.alpha_composite(prot, (0, py))
     # Tools row: what you carry.
     ty = py + prot.height + 4
@@ -519,7 +534,9 @@ def campaign_console(weapons: tuple[str, ...] = ("auto", "sniper", "missiles"), 
             icon = icon.resize((max(1, icon.width * 13 // icon.height), 13), Image.NEAREST)
         tools.alpha_composite(icon, (tx, (19 - icon.height) // 2))
         t = pixfont.render(text, "hud_text" if have else "console_edge")
-        tools.alpha_composite(t, (tx + icon.width + 2, 6))
+        spots["tool_" + kind.split("_")[0]] = (tx + icon.width + 2, ty + 6)
+        if not blank:
+            tools.alpha_composite(t, (tx + icon.width + 2, 6))
         tx += icon.width + t.width + 8
     img.alpha_composite(tools, (0, ty))
     # Downs and the ship plate.
@@ -528,8 +545,11 @@ def campaign_console(weapons: tuple[str, ...] = ("auto", "sniper", "missiles"), 
     plate.alpha_composite(icon, ((26 - icon.width) // 2, (24 - icon.height) // 2))
     by = ty + 19 + 4
     img.alpha_composite(plate, (w - 26, by))
-    dl = pixfont.render(f"DOWNS {downs}", "hud_dim")
-    img.alpha_composite(dl, (w - 26 - 6 - dl.width, by + 9))
+    spots["downs"] = (w - 26 - 6, by + 9)
+    if not blank:
+        dl = pixfont.render(f"DOWNS {downs}", "hud_dim")
+        img.alpha_composite(dl, (w - 26 - 6 - dl.width, by + 9))
+    spots["size"] = (w, by + 24)
     return img.crop((0, 0, w, by + 24))
 
 

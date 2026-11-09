@@ -211,7 +211,7 @@ def test_sandbox_fights_draws_and_logs(make_window, tmp_path):
     assert lines[0]["type"] == "start" and lines[-1]["type"] == "end"
 
 
-def test_secure_the_base_sets_mines_calls_waves_and_points_home(make_window, tmp_path):
+def test_secure_the_base_sets_drills_calls_waves_and_points_home(make_window, tmp_path):
     import arcade
     win = make_window("campaign")
     view = win.views["campaign"]
@@ -227,15 +227,24 @@ def test_secure_the_base_sets_mines_calls_waves_and_points_home(make_window, tmp
     assert view.hud.prompt.text.startswith("F")
     send(win, "on_key_press", arcade.key.F, 0)
     frames(win, 2)
-    assert len(game.mines) == 1
+    assert len(game.drills) == 1 and game.drills_carried == 0
     send(win, "on_key_press", arcade.key.N, 0)
     frames(win, 2)
     assert game.fleet.number == 1
-    # Fly far off: dim arrows point back at the mine and home base, with the mine's bars.
+    # Drain the asteroid: it cracks, then crumbles once the drill is unloaded, taking the drill.
+    pool = game.rocks[i]
+    pool.left = pool.total * 0.3
+    frames(win, 2)
+    assert f.wear[i] == 2
+    pool.left = 0.0
+    game.drills[0].hold = 0.0
+    frames(win, 3)
+    assert f.gone[i] and not game.drills
+    assert view.window.renderer.rock_sprites[i].sprite_lists == []
+    # Fly far off: a dim arrow points back at home base.
     st.ship.x += 3000
     frames(win, 3)
-    assert sum(s.visible for s in view.hud.marks) == 2
-    assert any(p.visible for p in view.hud.mark_bars)
+    assert sum(s.visible for s in view.hud.marks) == 1
     # A new map size takes effect on a new game.
     win.settings.tuning.map_size = 4
     frames(win, 1)
@@ -248,3 +257,38 @@ def test_secure_the_base_sets_mines_calls_waves_and_points_home(make_window, tmp
     lines = [json.loads(line) for log in logs for line in log.read_text().splitlines()]
     assert any(line["type"] == "start" and line["mode"] == "campaign" for line in lines)
     assert any(line["type"] == "sample" and "credits" in line for line in lines)
+
+
+def test_e_at_the_station_opens_the_shop_and_enter_buys(make_window):
+    import arcade
+    win = make_window("campaign")
+    view = win.views["campaign"]
+    game = view.sb
+    st = game.stage
+    frames(win, 2)
+    # Too far away: E only says where to go.
+    st.ship.x, st.ship.y = game.base.x, game.base.y - 300
+    frames(win, 1)
+    send(win, "on_key_press", arcade.key.E, 0)
+    frames(win, 1)
+    assert not game.station_open
+    st.ship.x, st.ship.y = game.base.x, game.base.y - 60
+    frames(win, 1)
+    assert view.hud.prompt.text.startswith("E")
+    send(win, "on_key_press", arcade.key.E, 0)
+    frames(win, 2)
+    assert game.station_open and view.station.visible and not view.hud.console.visible
+    # Weapons page, sniper row, Enter.
+    game.credits = 500
+    send(win, "on_key_press", arcade.key.KEY_2, 0)
+    send(win, "on_key_press", arcade.key.S, 0)
+    frames(win, 1)
+    assert view.station.item == "sniper"
+    send(win, "on_key_press", arcade.key.ENTER, 0)
+    frames(win, 2)
+    assert "sniper" in game.arsenal.owned and game.credits == 300
+    # W and S pick rows, so they don't fly the ship while docked.
+    assert not view.down
+    send(win, "on_key_press", arcade.key.ESCAPE, 0)
+    frames(win, 2)
+    assert not game.station_open and win.current_view is view and view.hud.console.visible

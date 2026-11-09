@@ -9,7 +9,7 @@ from __future__ import annotations
 import arcade
 from PIL import Image
 
-from art import pixfont, sprites as S
+from art import items as I, pix, pixfont, sprites as S
 
 from ..field import SIZES, VARIANTS
 from .images import crosshair, glyph, light_twin, pointer, rock_image, silhouette
@@ -44,6 +44,11 @@ class GameTextures:
         self.ship_body_light = tex(light_twin(body), "ship_body_light")
         self.ship_flash = tex(silhouette(body), "ship_flash")
         self.ship_canvas = body.width
+        # The same ship with 0 to 6 missiles showing on its pods, and its glow.
+        self.ship_loaded: dict[int, tuple[arcade.Texture, arcade.Texture]] = {}
+        for n in range(7):
+            img = pix.pad(I.player_interior_loaded(n), (body.width, body.height))
+            self.ship_loaded[n] = (tex(img, f"ship_loaded{n}"), tex(light_twin(img), f"ship_loaded{n}_light"))
         # One flame texture per booster and flicker frame, so any mix can be lit at once.
         self.flame: dict[tuple[str, int], arcade.Texture] = {}
         self.flame_light: dict[tuple[str, int], arcade.Texture] = {}

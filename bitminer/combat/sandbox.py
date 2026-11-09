@@ -10,7 +10,7 @@ from ..flight import Controls, angle_to, wrap_angle
 from ..settings import Tuning
 from ..world import MAX_FRAME, PHYSICS_STEP, FlightWorld
 from .ai import Battle, Waves
-from .arsenal import Arsenal
+from .arsenal import Arsenal, hold_still
 from .specs import SANDBOX, WEAPONS
 from .stage import Stage, dist
 
@@ -57,6 +57,7 @@ class Sandbox:
         n = max(1, math.ceil(dt / PHYSICS_STEP - 1e-9))
         h = dt / n
         self.impacts = []
+        controls = hold_still(self.arsenal, controls, dt)
         for _ in range(n):
             if not st.ship_down:
                 st.ship.step(controls, tuning, h, world.width, world.height)

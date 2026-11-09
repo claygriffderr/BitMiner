@@ -3,7 +3,7 @@
 Enemies only know where you are while one of them can see you (or you hit one of them); then every
 one of them knows. When none has seen you for a few seconds they lose you: each group flies to
 where you were last seen, searches round it, and eventually gives up and flies home to the
-mothership. They also remember any of your mines they come across, and raid those.
+mothership. They also remember any of your drills they come across, and raid those.
 
 The mothership launches each wave from its hangar once only a few enemies are still out.
 
@@ -36,7 +36,7 @@ class Hunt:
         self.last_seen = base         # where they think you are; before anyone sees you, your base
         self.since_seen = math.inf
         self.rev = 0                  # goes up each time they lose you, so every group starts a fresh search
-        self.mines: dict[int, Structure] = {}
+        self.drills: dict[int, Structure] = {}
         self._revealed = False
 
     # ------------------------------------------------------------ places
@@ -55,9 +55,9 @@ class Hunt:
             return None
         return ms.x, ms.y
 
-    def nearest_mine(self, x: float, y: float) -> Structure | None:
+    def nearest_drill(self, x: float, y: float) -> Structure | None:
         best, bd = None, math.inf
-        for m in self.mines.values():
+        for m in self.drills.values():
             if not m.alive:
                 continue
             mx, my = self.near_copy((m.x, m.y), (x, y))
@@ -93,19 +93,19 @@ class Hunt:
                 self.known = False
                 self.rev += 1
                 st.events.append(("lost",))
-        # Mines they fly past, they remember.
+        # Drills they fly past, they remember.
         for t in st.structures:
-            if t.kind != "mine" or not t.alive or t.uid in self.mines:
+            if t.kind != "drill" or not t.alive or t.uid in self.drills:
                 continue
             if any(dist(e.x, e.y, t.x, t.y) <= sight for e in flying):
-                self.mines[t.uid] = t
-                st.events.append(("mine_found", t.uid))
-        for uid in [u for u, m in self.mines.items() if not m.alive]:
-            del self.mines[uid]
+                self.drills[t.uid] = t
+                st.events.append(("drill_found", t.uid))
+        for uid in [u for u, m in self.drills.items() if not m.alive]:
+            del self.drills[uid]
 
 
 class Task:
-    """Where one group goes while the enemy doesn't know where you are: raid a mine it knows of,
+    """Where one group goes while the enemy doesn't know where you are: raid a drill it knows of,
     else fly to where you were last seen, search round it, and in the end go home."""
 
     def __init__(self, battle: "Battle"):
@@ -114,7 +114,7 @@ class Task:
         self.rev = -1
         self.point: tuple[float, float] | None = None
         self.search_t = 0.0
-        self.mine: Structure | None = None
+        self.drill: Structure | None = None
 
     def tick(self, dt: float, cx: float, cy: float) -> tuple[float, float, str]:
         hunt = self.battle.hunt
@@ -125,18 +125,18 @@ class Task:
             self.kind = "travel"
             self.search_t = 0.0
             self.point = None
-            self.mine = None
+            self.drill = None
         if self.kind != "home":
-            m = self.mine if (self.mine is not None and self.mine.alive and self.mine.uid in hunt.mines) \
-                else hunt.nearest_mine(cx, cy)
+            m = self.drill if (self.drill is not None and self.drill.alive and self.drill.uid in hunt.drills) \
+                else hunt.nearest_drill(cx, cy)
             if m is not None:
                 self.kind = "raid"
-                self.mine = m
+                self.drill = m
                 mx, my = hunt.near_copy((m.x, m.y), (cx, cy))
                 return mx, my, "raid"
             if self.kind == "raid":
                 self.kind = "travel"
-                self.mine = None
+                self.drill = None
         if self.kind == "travel":
             tx, ty = hunt.near_copy(hunt.last_seen, (cx, cy))
             if dist(cx, cy, tx, ty) > spec["arrive"]:

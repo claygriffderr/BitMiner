@@ -30,6 +30,7 @@ class Row:
     level: int | None = None      # upgrades: levels owned (0 to 3)
     sub: str | None = None        # items: a short line under the name, e.g. "2/5 CARRIED"
     owned: bool = True            # weapons you haven't bought yet show their price only
+    tag: str | None = None        # shown instead of the price, e.g. SOON or FREE
 
 
 @dataclass
@@ -50,7 +51,7 @@ class Detail:
     stats: list[tuple[str, str, str]] = field(default_factory=list)   # (label, now, next)
     bars: list[tuple[str, float, float]] = field(default_factory=list)  # (label, now, next) as 0..1
     buy: str = "BUY"
-    price: int = 0
+    price: int | None = 0         # None: nothing to buy, the button just says `buy`
 
 
 def _money(v: int) -> str:
@@ -100,7 +101,9 @@ def _row(row: Row, credits: int, selected: bool) -> Image.Image:
         _text(img, lv, 50, 14, "hud_dim")
     elif row.sub:
         _text(img, row.sub, 28, 14, "hud_dim")
-    if row.price is None:
+    if row.tag is not None:
+        p = pixfont.render(row.tag, "ion_hi" if row.tag == "FREE" else "hud_dim")
+    elif row.price is None:
         p = pixfont.render("MAX" if row.level is not None else "OWNED", "hud_dim")
     else:
         p = pixfont.render(_money(row.price), "ore" if row.price <= credits else "console_edge")
@@ -131,9 +134,10 @@ def _stat_bar(now: float, nxt: float, w: int = 48) -> tuple[Image.Image, Image.I
     return (hud.bar(w, now, "hud_text", "console_mid"), hud.bar(w, nxt, "ion_hi", "console_mid"))
 
 
-def detail_pane(det: Detail, credits: int, blink: bool = True, w: int = 190, h: int = 230) -> Image.Image:
+def detail_pane(det: Detail, credits: int, blink: bool = True, w: int = 190, h: int = 230,
+                spots: dict | None = None) -> Image.Image:
     """The right-hand pane for the selected row: what it is, its 3 levels as steps, what the next
-    level changes, and the buy button."""
+    level changes, and the buy button. `spots` gets the button's box (x, y, w, h)."""
     img = hud.panel(w, h, "console_black", 240)
     y = 6
     _text(img, det.title, 8, y, "hud_text")
@@ -173,26 +177,33 @@ def detail_pane(det: Detail, credits: int, blink: bool = True, w: int = 190, h: 
         img.alpha_composite(b, (66 + a.width + 12, y + 1))
         y += 10
     # The buy button.
-    affordable = det.price <= credits
+    affordable = det.price is not None and det.price <= credits
     btn = hud.panel(w - 16, 20, "console_mid" if affordable else "console_dark")
     bd = ImageDraw.Draw(btn)
     if affordable:
         bd.rectangle([0, 0, btn.width - 1, btn.height - 1], outline=rgba("ion"))
     _text(btn, det.buy, 6, 7, "hud_text" if affordable else "hud_dim")
     if affordable:
-        p = pixfont.render(_money(det.price), "ore")
+        p = pixfont.render(_money(det.price) if det.price else "FREE", "ore")
         key = pixfont.render("ENTER", "hud_dim")
         btn.alpha_composite(key, (btn.width - key.width - 6, 7))
         btn.alpha_composite(p, (btn.width - key.width - 12 - p.width, 7))
-    else:
+    elif det.price is not None:
         need = pixfont.render(f"NEED {_money(det.price - credits)} MORE", "console_edge")
         btn.alpha_composite(need, (btn.width - need.width - 6, 7))
-    img.alpha_composite(btn, (8, max(y + 6, h - 28)))
+    by = max(y + 6, h - 28)
+    img.alpha_composite(btn, (8, by))
+    if spots is not None:
+        spots["buy"] = (8, by, btn.width, btn.height)
     return img
 
 
 def station_panel(page: str, rows: list[Row], selected: int, det: Detail, credits: int,
-                  warn: bool = False, blink: bool = True) -> Image.Image:
+                  warn: bool = False, blink: bool = True, spots: dict | None = None) -> Image.Image:
+    """The whole station screen. `spots` gets the boxes (x, y, w, h) of its tabs, rows and buy
+    button, for the mouse."""
+    spots = {} if spots is None else spots
+    spots["tabs"], spots["rows"] = [], []
     img = hud.panel(PANEL_W, PANEL_H, "console_dark", 238)
     d = ImageDraw.Draw(img)
     _text(img, "SPACE STATION", 8, 6, "hud_text")
@@ -212,6 +223,7 @@ def station_panel(page: str, rows: list[Row], selected: int, det: Detail, credit
             td.line([(1, 1), (tw - 2, 1)], fill=rgba("ion"))
         _text(tab, label, 8, 5, "hud_text" if on else "hud_dim")
         img.alpha_composite(tab, (x, 20))
+        spots["tabs"].append((x, 20, tw, 15))
         x += tw + 4
     d.line([(6, 35), (PANEL_W - 7, 35)], fill=rgba("console_edge"))
     if warn:
@@ -222,9 +234,13 @@ def station_panel(page: str, rows: list[Row], selected: int, det: Detail, credit
     y = 40
     for i, row in enumerate(rows):
         img.alpha_composite(_row(row, credits, i == selected), (6, y))
+        spots["rows"].append((6, y, LIST_W, ROW_H - 2))
         y += ROW_H
-    pane = detail_pane(det, credits, blink, w=PANEL_W - LIST_W - 18, h=PANEL_H - 40 - 18)
+    pane_spots: dict = {}
+    pane = detail_pane(det, credits, blink, w=PANEL_W - LIST_W - 18, h=PANEL_H - 40 - 18, spots=pane_spots)
     img.alpha_composite(pane, (LIST_W + 12, 40))
+    bx, by, bw, bh = pane_spots["buy"]
+    spots["buy"] = (LIST_W + 12 + bx, 40 + by, bw, bh)
     # Key hints.
     x = 8
     for key, word in (("1-3", "PAGE"), ("W/S", "PICK"), ("ENTER", "BUY"), ("E", "LEAVE")):

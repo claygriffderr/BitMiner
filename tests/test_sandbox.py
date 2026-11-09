@@ -217,12 +217,16 @@ def test_the_laser_has_charges_that_recharge():
     spec = WEAPONS["laser"]
     beams = 0
     for _ in range(int(spec["charges"]) + 1):
-        arsenal.step(DT, True)
-        if any(ev == ("fire", "laser") for ev in st.events):
-            beams += 1
-        empty = ("empty", "laser") in st.events
-        st.events = []
-        for _ in range(round((spec["warmup"] + spec["duration"] + 0.5) / DT)):
+        # Hold fire through the charge-up, then let go once it has fired.
+        events = []
+        for _ in range(round((spec["charge_time"] + 0.1) / DT)):
+            arsenal.step(DT, True)
+            st.step(DT)
+            events += st.events
+            st.events = []
+        beams += sum(1 for ev in events if ev == ("fire", "laser"))
+        empty = ("empty", "laser") in events
+        for _ in range(round((spec["duration"] + 0.5) / DT)):
             arsenal.step(DT, False)
             st.step(DT)
     assert beams == spec["charges"]

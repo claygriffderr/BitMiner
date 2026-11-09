@@ -95,23 +95,44 @@ def run() -> int:
     assert sb.waves.number >= 1, "no wave arrived"
     assert sb.stage.enemies or sb.kills, "the wave never showed up"
 
-    # Secure the Base: the big map builds, and 40 seconds on auto pilot sets mines and digs ore
-    # while the first wave launches.
+    # Secure the Base: the big map builds, and 40 seconds on auto pilot looks round the station,
+    # sets a drill and digs ore while the first wave launches.
     from .combat.campaign import Campaign, autopilot as campaign_pilot
 
     game = Campaign(Quiet(), Quiet(), settings.Tuning())
     assert len(game.world.field) > 5000, "the big map came out nearly empty"
+    opened = False
     with tempfile.TemporaryDirectory() as d:
         log = PlayLog(Path(d), {"mode": "selftest-campaign"})
         t = 0.0
         for _ in range(60 * 40):
-            controls, trigger, cursor, set_mine = campaign_pilot(game, t)
-            log.record(1 / 60, game.step(1 / 60, controls, trigger, cursor, set_mine), game)
+            controls, trigger, cursor, set_drill = campaign_pilot(game, t)
+            events = game.step(1 / 60, controls, trigger, cursor, set_drill)
+            opened = opened or ("station", "open") in events
+            log.record(1 / 60, events, game)
             t += 1 / 60
         log.close(game)
-    assert game.mines, "no mine was set"
+    assert opened, "the station never opened"
+    assert game.drills, "no drill was set"
     assert game.cargo > 0 or game.credits > 0, "no ore was collected"
     assert game.fleet.number >= 1, "the first wave never launched"
+
+    # The station screen, the console and the sprint 7 pictures build.
+    from art import hud, station as ST
+    from .combat.shop import PAGE_ITEMS, PAGES
+    from .graphics.images import crumble_frames, laser_charge, worn_rock
+    from .ui.station_screen import page_content
+
+    for page in PAGES:
+        for sel in range(len(PAGE_ITEMS[page])):
+            rows, det = page_content(game, page, sel)
+            assert ST.station_panel(page, rows, sel, det, game.credits).size == (ST.PANEL_W, ST.PANEL_H)
+    spots = {}
+    hud.campaign_console(weapons=("auto",), current="auto", shield_level=0, boost_level=0, blank=True, spots=spots)
+    assert {"ammo", "hull", "downs"} <= set(spots)
+    assert worn_rock(64, 1, True, 3, (90.0,), 5).size == (68, 68)
+    assert len(crumble_frames(32, 0, True, 3, (0.0,), 5, 9)) == 9
+    assert laser_charge(20)[1] is not None
 
     # Settings.
     with tempfile.TemporaryDirectory() as d:

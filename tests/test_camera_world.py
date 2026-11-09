@@ -19,6 +19,15 @@ def test_camera_looks_ahead_along_the_drift():
     assert abs(cam.offset()[0]) < 1
 
 
+def test_camera_can_hold_a_fixed_offset_past_the_lead_limit():
+    cam = FollowCamera()
+    ship = Ship(0, 0, vx=200, vy=0)
+    want = (MAX_LEAD[0] + 30, -20.0)
+    for _ in range(600):
+        cam.update(ship, Tuning(), 1 / 120, aim=(-100, 0), hold=want)
+    assert cam.offset() == pytest.approx(want, abs=0.5)
+
+
 def test_shake_scales_with_setting_and_fades():
     cam = FollowCamera()
     ship = Ship(0, 0)
