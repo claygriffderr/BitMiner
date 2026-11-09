@@ -20,6 +20,7 @@ import arcade
 import numpy as np
 from pyglet import gl
 
+from art import items as I
 from art.palette import rgba
 
 from ..field import AsteroidField, wrap_delta
@@ -28,7 +29,7 @@ from .gpu import render_texture
 from .images import light_twin, worn_rock
 from .particles import Particles
 from .postfx import Bloom, Composite, Outline, Present
-from .textures import GameTextures
+from .textures import GameTextures, tex
 
 VIEW = (640, 360)
 BLOOM = 1.0
@@ -51,6 +52,7 @@ class FrameView:
     ship_visible: bool = True
     stage: Any = None     # a StageDrawer with this frame's combat layers, or None
     missiles: int = -1    # missiles showing on the pods (0 to 6), or -1 for the plain ship
+    boost: int = 0        # the boost level while you boost (its longer, hotter flame), else 0
 
 
 def snap(v, k: int):
@@ -98,6 +100,12 @@ class Renderer:
         self.flame_light = {key: arcade.Sprite(art.flame_light[key, 0]) for key in "WSAD"}
         for s in self.flame_light.values():
             self.ship_light.append(s)
+        self.boost_flame = arcade.Sprite(art.flame["W", 0])
+        self.boost_light = arcade.Sprite(art.flame_light["W", 0])
+        self.flames.append(self.boost_flame)
+        self.ship_light.append(self.boost_light)
+        self.boost_flame.visible = self.boost_light.visible = False
+        self._boost_tex: dict = {}
 
         self._missiles = -1
         self._worn = 0
@@ -196,9 +204,19 @@ class Renderer:
         self.ui_cam = arcade.Camera2D(viewport=arcade.LBWH(0, 0, W, H),
                                       position=(VIEW[0] / 2, VIEW[1] / 2), zoom=k,
                                       render_target=self.comp_fbo)
-        for s in (self.body, self.flash, *self.flame.values()):
+        for s in (self.body, self.flash, *self.flame.values(), self.boost_flame):
             s.scale = k
         self._rx[:] = np.nan     # re-snap every rock for the new pixel size
+
+    def _boost(self, level: int, frame: int):
+        """The boost flame for this level and flicker frame, and its glow."""
+        key = (level, frame)
+        pair = self._boost_tex.get(key)
+        if pair is None:
+            img = I.boost_flame(level, frame)
+            pair = self._boost_tex[key] = (tex(img, f"boost_flame_{level}{frame}"),
+                                           tex(light_twin(img), f"boost_flame_{level}{frame}_light"))
+        return pair
 
     def to_game(self, wx: float, wy: float) -> tuple[float, float]:
         """Window framebuffer pixels to game pixels."""
@@ -299,6 +317,14 @@ class Renderer:
             s.angle = ls.angle = view.ship_angle
             s.position = (ship_cx, ship_cy)
             ls.position = (ship_cx / k, ship_cy / k)
+        boosting = view.boost > 0 and view.ship_visible
+        self.boost_flame.visible = self.boost_light.visible = boosting
+        if boosting:
+            pair = self._boost(view.boost, frame)
+            self.boost_flame.texture, self.boost_light.texture = pair
+            self.boost_flame.angle = self.boost_light.angle = view.ship_angle
+            self.boost_flame.position = (ship_cx, ship_cy)
+            self.boost_light.position = (ship_cx / k, ship_cy / k)
         if view.missiles != self._missiles:
             self._missiles = view.missiles
             if view.missiles < 0:

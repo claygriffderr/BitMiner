@@ -14,14 +14,14 @@ import arcade
 from art import hud
 from art.palette import rgba
 
-from ..combat.specs import WEAPONS
+from ..combat.specs import SHOP, WEAPONS
 from ..graphics.textures import tex
 from .panel import set_rect, solid
 from .text import TextLayer
 
 ART_NAME = {"auto": "auto", "sniper": "sniper", "missile": "missiles", "laser": "laser"}
 BAR_COLOR = {"shield": ("ion", "ion_white"), "hull": ("hud_text", "hud_text"), "boost": ("ion_hi", "ion_white")}
-MINES_MAX = 5            # the mine slot reads n/5 (mines arrive next sprint)
+MINES_MAX = int(SHOP["items"]["mine"]["max"])     # the mine slot reads n/5
 
 
 class CampaignConsole:
@@ -76,22 +76,26 @@ class CampaignConsole:
         arsenal = game.arsenal
         owned = tuple(ART_NAME[w] for w in arsenal.owned)
         current = ART_NAME.get(arsenal.weapon, "auto")
-        shield_level = 1 if st.shield_max > 0 else 0
+        gear = game.gear
+        d = game.defenses
         low = st.hull < st.hull_max * 0.3
-        drills = game.drills_carried
-        key = (owned, current, shield_level, low, drills > 0, len(str(drills)), game.downs >= 10)
+        shape = dict(shield_level=gear.level("shield"), armor_level=gear.level("armor"),
+                     boost_level=gear.level("boost"), drills=game.drills_carried, mines=d.mines_carried,
+                     sentries=d.sentries_carried)
+        # The picture only changes with what's owned, which icons are lit and how wide the counts are.
+        key = (owned, current, shape["shield_level"], shape["armor_level"], shape["boost_level"], low,
+               *[(shape[k] > 0, len(str(shape[k]))) for k in ("drills", "mines", "sentries")], game.downs >= 10)
         if key != self.key:
-            self._rebuild(key, owned, current, shield_level, low, drills)
+            self._rebuild(key, owned, current, low, shape)
         self._update_live(game)
 
-    def _rebuild(self, key, owned, current, shield_level, low, drills) -> None:
+    def _rebuild(self, key, owned, current, low, shape) -> None:
         self.key = key
         cached = self._textures.get(key)
         if cached is None:
             spots: dict = {}
-            img = hud.campaign_console(weapons=owned, current=current, shield_level=shield_level, armor_level=0,
-                                       boost_level=0, drills=drills, mines=0, mines_max=MINES_MAX, sentries=0,
-                                       low_hull=low, blank=True, spots=spots)
+            img = hud.campaign_console(weapons=owned, current=current, mines_max=MINES_MAX, low_hull=low,
+                                       blank=True, spots=spots, **shape)
             self._n += 1
             cached = self._textures[key] = (tex(img, f"campaign_console_{self._n}"), spots, img.size)
         texture, self.spots, self.size = cached
@@ -120,7 +124,7 @@ class CampaignConsole:
         set_rect(self.ammo_line, x, y + level - 1, w if level else 0, 1)
         # Bars.
         values = {"shield": st.shield / st.shield_max if st.shield_max > 0 else 0.0,
-                  "hull": st.hull / st.hull_max, "boost": 0.0}
+                  "hull": st.hull / st.hull_max, "boost": game.gear.boost}
         low = st.hull < st.hull_max * 0.3
         for k, (fill, shine) in self.bars.items():
             spot = sp.get(k)
@@ -148,8 +152,9 @@ class CampaignConsole:
         lb["missiles_big"].set(missiles, color="hud_text" if total else "danger_pink_hi")
         lb["missiles_small"].set(missiles, color="hud_dim")
         lb["tool_drill"].set(str(game.drills_carried), color="hud_text" if game.drills_carried else "console_edge")
-        lb["tool_mine"].set(f"0/{MINES_MAX}", color="console_edge")
-        lb["tool_sentry"].set("0", color="console_edge")
+        mines, sentries = game.defenses.mines_carried, game.defenses.sentries_carried
+        lb["tool_mine"].set(f"{mines}/{MINES_MAX}", color="hud_text" if mines else "console_edge")
+        lb["tool_sentry"].set(str(sentries), color="hud_text" if sentries else "console_edge")
         lb["downs"].set(f"DOWNS {game.downs}", color="hud_dim")
 
     def show(self, visible: bool) -> None:

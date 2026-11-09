@@ -292,3 +292,44 @@ def test_e_at_the_station_opens_the_shop_and_enter_buys(make_window):
     send(win, "on_key_press", arcade.key.ESCAPE, 0)
     frames(win, 2)
     assert not game.station_open and win.current_view is view and view.hud.console.visible
+
+
+def test_r_places_a_sentry_g_lays_mines_and_shift_boosts(make_window):
+    import arcade
+    win = make_window("campaign")
+    view = win.views["campaign"]
+    game = view.sb
+    st = game.stage
+    frames(win, 2)
+    st.enemies.clear()
+    game.defenses.mines_carried = 3
+    game.defenses.carried.append(("auto", 1))
+    game.gear.raise_level("boost")
+    # Well away from the station and clear of rocks.
+    x, y = game.base.x + 400, game.base.y
+    for _ in range(40):
+        if not game.defenses.sentry_room(x, y):
+            break
+        x += 30
+    st.ship.x, st.ship.y, st.ship.vx, st.ship.vy = x, y, 0.0, 0.0
+    frames(win, 1)
+    assert view.hud.prompt.text.startswith("R")
+    send(win, "on_key_press", arcade.key.R, 0)
+    frames(win, 2)
+    assert len(game.defenses.sentries) == 1 and not game.defenses.carried
+    send(win, "on_key_press", arcade.key.G, 0)
+    frames(win, 40)
+    send(win, "on_key_release", arcade.key.G, 0)
+    assert game.defenses.mines_carried == 0 and len(st.mines) == 3
+    send(win, "on_key_press", arcade.key.W, 0)
+    send(win, "on_key_press", arcade.key.LSHIFT, 0)
+    frames(win, 20)
+    assert game.gear.boosting and game.gear.boost < 1.0
+    send(win, "on_key_release", arcade.key.LSHIFT, 0)
+    send(win, "on_key_release", arcade.key.W, 0)
+    frames(win, 2)
+    assert not game.gear.boosting
+    before = game.credits
+    send(win, "on_key_press", arcade.key.EQUAL, 0)
+    frames(win, 1)
+    assert game.credits > before and view.hud.alert.text.startswith("TEST CREDITS")

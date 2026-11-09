@@ -145,6 +145,8 @@ class Missile:
     smoke: float = 0.0
     uid: int = 0
     struck: object = None        # the hull it hit, which takes the full damage
+    source: str = "missile"      # what fired it, for the play log: missile, or sentry_missile
+    style: str = ""              # "sentry": a sentry's darker missile
 
 
 @dataclass
@@ -331,6 +333,13 @@ class Stage:
         self.ship_mass = float(DEFENSE["mass"])
         self.bounce = 0.4
         self.armor = int(DEFENSE.get("armor", 0))
+        self.armor_block: float | None = None     # set by armor upgrades: the share of a hull hit it stops
+        self.shield_level = 2        # how the shield bubble looks (1 to 3); the sandbox's is level 2
+        self.shield_delay = float(DEFENSE.get("shield_delay", 3.0))
+        self.shield_regen = float(DEFENSE.get("shield_regen", 10.0))
+        self.damage_mult = {"auto": 1.0, "sniper": 1.0}   # weapon upgrades
+        self.sniper_pierce = int(WEAPONS["sniper"]["pierce"])
+        self.mines: list = []        # your laid mines (see combat/defenses.py)
         self.ship_down = False
         self.invulnerable = 0.0      # seconds left of the blink after a respawn
         self.quiet = 99.0            # seconds since you last took damage
@@ -340,7 +349,7 @@ class Stage:
 
     def clear(self) -> None:
         for name in ("enemies", "shots", "missiles", "beams", "anims", "rings", "chunks", "streaks",
-                     "lanes", "structures", "timeline"):
+                     "lanes", "structures", "timeline", "mines"):
             getattr(self, name).clear()
         self.screen_flash = 0.0
         self.ship_flash = 0.0
@@ -410,7 +419,8 @@ class Stage:
             dx, dy = shift(e)
             if (dx or dy) and e.brain is not None and hasattr(e.brain, "moved"):
                 e.brain.moved(dx, dy)
-        for group in (self.shots, self.missiles, self.anims, self.rings, self.chunks, self.lanes, self.structures):
+        for group in (self.shots, self.missiles, self.anims, self.rings, self.chunks, self.lanes, self.structures,
+                      self.mines):
             for o in group:
                 shift(o)
         for b in self.beams:
@@ -459,7 +469,7 @@ class Stage:
         fx, fy = forward_vector(a)
         speed = w["speed"]
         self.shots.append(Shot("player", "auto", x, y, fx * speed + ship.vx, fy * speed + ship.vy,
-                               w["damage"], w["range"] / speed))
+                               w["damage"] * self.damage_mult["auto"], w["range"] / speed))
         self.anims.append(Anim("muzzle", ("auto",), 2, 30, x, y, ship.angle,
                                follow=self._ship_follow(right, fwd)))
         self.events.append(("fire", "auto"))
@@ -471,8 +481,8 @@ class Stage:
         x, y = to_world(ship.x, ship.y, ship.angle, *NOSE)
         fx, fy = forward_vector(h)
         speed = w["speed"]
-        self.shots.append(Shot("player", "sniper", x, y, fx * speed, fy * speed, w["damage"],
-                               w["range"] / speed, pierce=int(w["pierce"]), pad=1.0))
+        self.shots.append(Shot("player", "sniper", x, y, fx * speed, fy * speed, w["damage"] * self.damage_mult["sniper"],
+                               w["range"] / speed, pierce=self.sniper_pierce, pad=1.0))
         self.anims.append(Anim("muzzle", ("sniper",), 2, 20, x, y, ship.angle,
                                follow=self._ship_follow(*NOSE)))
         # Recoil: a small shove backwards, and a puff off the nose.
@@ -516,6 +526,31 @@ class Stage:
             self.missile_reload = float(w["reload"])
         self.events.append(("fire", "missile"))
         return True
+
+    def sentry_shot(self, kind: str, x: float, y: float, heading: float, spec: dict) -> None:
+        """A sentry's round: `kind` is auto or sniper, fired from (x, y) toward `heading`."""
+        speed = float(spec["speed"])
+        a = heading + (self.rng.gauss(0, spec["spread"]) if spec.get("spread") else 0.0)
+        fx, fy = forward_vector(a)
+        sniper = kind == "sniper"
+        self.shots.append(Shot("player", "sentry_" + kind, x, y, fx * speed, fy * speed, float(spec["damage"]),
+                               float(spec["range"]) * 1.15 / speed, pierce=int(spec.get("pierce", 1)),
+                               pad=1.0 if sniper else 0.5))
+        self.anims.append(Anim("muzzle", ("sniper" if sniper else "auto",), 2, 30 if not sniper else 20, x, y, heading))
+        if sniper:
+            self.sparks.burst("ion_spark", x, y, math.radians(90 - heading), 0.5, 4, (20, 60), (0.08, 0.2))
+        self.events.append(("fire", "sentry_" + kind))
+
+    def sentry_missile(self, x: float, y: float, heading: float, target: Enemy | None, spec: dict) -> None:
+        """A missile sentry's missile, with the same flight and blast as yours but darker."""
+        w = WEAPONS["missile"]
+        self.missiles.append(Missile(
+            "player", x, y, heading, w["launch_speed"], w["max_speed"], w["accel"], w["turn_rate"],
+            float(spec["damage"]), float(spec["range"]) / w["max_speed"] * 1.6, target=target,
+            blast_radius=w["blast_radius"], blast_push=w["blast_push"], uid=self.uid(),
+            source="sentry_missile", style="sentry"))
+        self.smoke.burst("smoke", x, y, math.radians(90 - heading), 0.9, 6, (8, 28), (0.3, 0.7))
+        self.events.append(("fire", "sentry_missile"))
 
     def _step_rack(self, dt: float) -> None:
         w = WEAPONS["missile"]
@@ -713,7 +748,8 @@ class Stage:
     @property
     def armor_factor(self) -> float:
         """How much of a hull hit gets through your armor."""
-        return max(0.0, 1.0 - self.armor * float(DEFENSE.get("armor_block", 0.0)))
+        block = self.armor * float(DEFENSE.get("armor_block", 0.0)) if self.armor_block is None else self.armor_block
+        return max(0.0, 1.0 - block)
 
     def _check_down(self, source: str) -> None:
         if self.hull > 0 or not self.can_die or self.ship_down:
@@ -898,8 +934,8 @@ class Stage:
         self.screen_flash = max(0.0, self.screen_flash - dt * 2.5)
         self.invulnerable = max(0.0, self.invulnerable - dt)
         self.quiet += dt
-        if self.regen and not self.ship_down and self.quiet >= DEFENSE.get("shield_delay", 3.0):
-            self.shield = min(self.shield_max, self.shield + DEFENSE.get("shield_regen", 10.0) * dt)
+        if self.regen and not self.ship_down and self.quiet >= self.shield_delay:
+            self.shield = min(self.shield_max, self.shield + self.shield_regen * dt)
 
         self._step_rack(dt)
         self._step_shots(dt)
@@ -1125,7 +1161,8 @@ class Stage:
 
     def _player_hit(self, s: Shot, e: Enemy, x: float, y: float) -> None:
         back = math.atan2(-s.vy, -s.vx)
-        if s.kind == "sniper":
+        sniper = s.kind in ("sniper", "sentry_sniper")
+        if sniper:
             fwd = math.atan2(s.vy, s.vx)
             self.anims.append(Anim("flare", ("player",), 2, 14, x, y))
             # A bright line through the hull and debris out of the far side.
@@ -1137,12 +1174,13 @@ class Stage:
             self.sparks.burst("alien_debris", x + fx * span * 0.5, y + fy * span * 0.5, fwd, 0.5, 8,
                               (40, 110), (0.2, 0.5))
             self.push_enemy(e, s.vx * 0.04, s.vy * 0.04)
-            self.kick += 0.08
+            if s.kind == "sniper":
+                self.kick += 0.08
         else:
             self.anims.append(Anim("flare", ("player",), 2, 30, x, y))
             self.sparks.burst("ion_spark", x, y, back, 0.7, 3, (30, 90), (0.08, 0.2))
             self.sparks.burst("alien_debris", x, y, back, 0.9, 1, (20, 60), (0.15, 0.35))
-        self.damage_enemy(e, s.damage, x, y, flash=1.0 if s.kind == "sniper" else 0.55, source=s.kind)
+        self.damage_enemy(e, s.damage, x, y, flash=1.0 if sniper else 0.55, source=s.kind)
 
     def _enemy_shot_hits(self, s: Shot, x0: float, y0: float) -> bool:
         for t in self.structures:
@@ -1276,7 +1314,7 @@ class Stage:
                     continue
                 falloff = 1.0 - 0.6 * gap / R
             self.push_enemy(e, math.cos(a) * m.blast_push * falloff, math.sin(a) * m.blast_push * falloff)
-            self.damage_enemy(e, m.damage * falloff, m.x, m.y, source="missile")
+            self.damage_enemy(e, m.damage * falloff, m.x, m.y, source=m.source)
 
     def _missile_down(self, m: Missile) -> None:
         m.health = 0

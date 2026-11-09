@@ -6,10 +6,11 @@
 - Top: kills and enemies out on the left; the wave and whether the enemy knows where you are
   (HIDDEN or SPOTTED) in the middle, with no countdown; ore carried and credits on the right.
 - Alerts under the top bar: a wave on its way, being spotted or lost, drills set, hit, lost or used
-  up, asteroids crumbling, ore sold and things bought.
+  up, sentries placed, hit or lost, asteroids crumbling, ore sold, and things bought or upgraded.
 - Screen edges: arrows toward close enemies, a constant dim arrow toward home base, and for each of
   your drills an arrow with a tiny copy of its gold bar and its health (pink while under attack).
-- Bottom centre: a prompt when you can press E for the station or F to set a drill.
+- Bottom centre: a prompt when you can press E for the station, F to set a drill or R to place a
+  sentry you carry.
 - In the world: a gold "+3" rises from each enemy you destroy, the credits it paid.
 """
 
@@ -27,10 +28,11 @@ from .campaign_console import CampaignConsole
 from .combat_hud import ALERT_SHOW, ARROW_STEPS, VIEW_H, VIEW_W, CombatHud
 from .text import text_width
 
-HELP = [("WASD", " FLY  "), ("CLICK", " FIRE  "), ("1-4", "/"), ("WHEEL", " WEAPON  "), ("F", " DRILL  "),
-        ("E", " STATION  "), ("N", " CALL WAVE  "), ("P", " PAUSE  "), ("TAB", " TUNING  "), ("ESC", " MENU")]
+# N (call the next wave) and Tab (tuning) still work; there's no room left on the line for them.
+HELP = [("WASD", " FLY  "), ("CLICK", " FIRE  "), ("1-4", " WEAPON  "), ("SHIFT", " BOOST  "), ("F", " DRILL  "),
+        ("G", " MINES  "), ("R", " SENTRY  "), ("E", " STATION  "), ("P", " PAUSE  "), ("ESC", " MENU")]
 ALERT_COLOR = {"drill_set": "ore_hi", "unload": "ore_hi", "crumble": "ore", "lost": "alien_green_hi",
-               "bought": "ion_hi", "notice": "hud_text"}      # the rest are warnings, in pink
+               "bought": "ion_hi", "notice": "hud_text", "sentry_set": "ion_hi"}   # the rest are warnings, in pink
 MARK_ALPHA = 0.5          # your drills and base: constant, dim
 HIT_SHOW = 1.5            # seconds a drill's arrow stays pink after a hit
 EDGE = (10, VIEW_W - 10, 22, VIEW_H - 28)      # left, right, bottom, top: where edge arrows sit
@@ -38,7 +40,13 @@ MARKER_STEPS = 10         # a drill marker's gauges are drawn in this many steps
 POP_TIME = 1.1            # seconds a kill's "+3" stays up
 POP_RISE = 14             # game pixels it floats up in that time
 POP_MAX = 12              # at most this many at once (the oldest make way)
-BOUGHT = {"drill": "DRILL", "sniper": "SNIPER", "missiles": "MISSILES", "laser": "LASER", "repair": "HULL PATCHED"}
+BOUGHT = {"drill": "DRILL", "sniper": "SNIPER", "missiles": "MISSILES", "laser": "LASER", "repair": "HULL PATCHED",
+          "mine": "MINE", "shield": "SHIELD", "armor": "ARMOR", "boost": "BOOST", "auto": "AUTO CANNON",
+          "sentry_auto": "AUTO SENTRY", "sentry_sniper": "SNIPER SENTRY", "sentry_missile": "MISSILE SENTRY"}
+SENTRY_NAME = {"auto": "AUTO", "sniper": "SNIPER", "missile": "MISSILE"}
+NO_ROOM = {"ROCK": "NO ROOM FOR A SENTRY: TOO CLOSE TO AN ASTEROID",
+           "CROWDED": "NO ROOM FOR A SENTRY: TOO CLOSE TO SOMETHING ELSE",
+           "MAX": "THAT'S AS MANY SENTRIES AS YOU CAN HAVE OUT"}
 
 
 class CampaignHud(CombatHud):
@@ -88,13 +96,19 @@ class CampaignHud(CombatHud):
     def _prompt(game) -> str:
         if game.station_open:
             return ""
+        d = game.defenses
+        ship = game.stage.ship
+        sentry = ""
+        if d.carried and not game.stage.ship_down and not d.sentry_room(ship.x, ship.y):
+            gun, tier = d.carried[0]
+            sentry = f"R  PLACE YOUR {SENTRY_NAME[gun]} SENTRY T{tier} HERE"
         if game.near_station():
-            return "E  OPEN THE STATION"
+            return "E  OPEN THE STATION" + ("     R  PLACE A SENTRY" if sentry else "")
         if game.drillable() is not None:
             if game.drills_carried > 0:
                 return f"F  SET A DRILL HERE   {game.drills_carried} LEFT"
             return "NO DRILLS LEFT: BUY MORE AT THE STATION"
-        return ""
+        return sentry
 
     def _update_top(self, dt: float, game) -> None:
         st = game.stage
@@ -125,19 +139,34 @@ class CampaignHud(CombatHud):
                 text = "THEY LOST YOU"
             elif kind == "drill_set":
                 text = "DRILL SET"
-            elif kind == "struct_hit" and ev[1] == "drill":
-                if self._drill_hit_t > ALERT_SHOW or self._alert_kind != "drill_hit":
-                    text = "DRILL UNDER ATTACK"
-                    kind = "drill_hit"
+            elif kind == "struct_hit" and ev[1] in ("drill", "sentry"):
+                what = ev[1] + "_hit"
+                if self._drill_hit_t > ALERT_SHOW or self._alert_kind != what:
+                    text = f"{ev[1].upper()} UNDER ATTACK"
+                    kind = what
                 self._drill_hit_t = 0.0
-            elif kind == "struct_lost" and ev[1] == "drill":
-                text = "DRILL DESTROYED"
+            elif kind == "struct_lost" and ev[1] in ("drill", "sentry"):
+                text = f"{ev[1].upper()} DESTROYED"
+            elif kind == "sentry_set":
+                text = f"{SENTRY_NAME[ev[1]]} SENTRY T{ev[2]} PLACED"
+            elif kind == "no_room":
+                text = NO_ROOM.get(ev[2], "NO ROOM HERE")
             elif kind == "crumble":
                 text = "ASTEROID WORKED OUT: IT CRUMBLED WITH ITS DRILL"
             elif kind == "unload":
                 text = f"SOLD {int(round(ev[1]))} ORE  +{ev[2]} CR"
             elif kind == "bought":
-                text = f"BOUGHT: {BOUGHT.get(ev[1], ev[1].upper())}" if ev[1] != "repair" else BOUGHT["repair"]
+                name = BOUGHT.get(ev[1], ev[1].upper())
+                if ev[1] == "repair":
+                    text = name
+                elif ev[1].startswith("sentry_"):
+                    text = f"BOUGHT: {name} T{ev[3]}: PRESS R TO PLACE IT"
+                elif len(ev) > 3:
+                    text = f"UPGRADED: {name} LEVEL {ev[3]}"
+                elif ev[1] == "mine":
+                    text = "BOUGHT: MINE. HOLD G TO LAY IT"
+                else:
+                    text = f"BOUGHT: {name}"
             elif kind == "empty" and ev[1] == "missile":
                 text = "OUT OF MISSILES: BUY MORE AT THE STATION"
             elif kind == "empty" and ev[1] == "laser":

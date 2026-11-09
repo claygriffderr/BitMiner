@@ -25,9 +25,10 @@ Early development, built in short sprints with a playable or reviewable demo at 
 
 ## Play it
 
-Windows: download `BitMiner-DrillsAndShop-windows.zip` from the
-[drills-and-shop release](https://github.com/claygriffderr/BitMiner/releases/tag/drills-and-shop), unzip it
+Windows: download `BitMiner-UpgradesAndDefenses-windows.zip` from the
+[upgrades-and-defenses release](https://github.com/claygriffderr/BitMiner/releases/tag/upgrades-and-defenses), unzip it
 and run `BitMiner.exe`. Each push to a sprint branch rebuilds it. (Earlier sprints stay on the
+[drills-and-shop](https://github.com/claygriffderr/BitMiner/releases/tag/drills-and-shop),
 [secure-the-base](https://github.com/claygriffderr/BitMiner/releases/tag/secure-the-base),
 [combat-sandbox](https://github.com/claygriffderr/BitMiner/releases/tag/combat-sandbox),
 [weapon-gallery](https://github.com/claygriffderr/BitMiner/releases/tag/weapon-gallery) and
@@ -52,8 +53,14 @@ goes back to it.
   drill on an ore asteroid next to you (several can share one); a drill fills its gold bar and
   waits for you to fly past and load it, and you sell the ore at home base. Asteroids crack as they
   empty, then crumble away and take their drills with them. Press E at the station to open its
-  shop (the game keeps running): more drills, the sniper, missiles six at a time, the laser and
-  hull repairs. Every enemy you destroy pays credits on the spot, more for the dangerous ones. The laser charges for 2 seconds while you hold fire. Enemies only know where you
+  shop (the game keeps running): more drills, the sniper, missiles six at a time, the laser, hull
+  repairs, 3-level upgrades (shield, armor, boost, auto cannon and sniper), explosive mines and
+  sentries. Shift boosts once you own it. Hold G to lay the mines you carry behind you (hold still
+  for a pile, keep flying for a line); they go off when an enemy flies over one and never hurt you
+  or your base. R sets down a sentry you carry (auto, sniper or missile, 3 tiers each): it turns
+  and fires at enemies in range, and enemies can destroy it. Every enemy you destroy pays credits
+  on the spot, more for the dangerous ones, and = adds 1,000 test credits so every item can be
+  tried. The laser charges for 2 seconds while you hold fire. Enemies only know where you
   are while one of them can see you: then they all do, and when they lose you they search where you
   were last seen, then go home. They raid drills they come across. Each wave launches once only a
   few of the last are still out. Dim arrows at the screen edge point at home base and each drill,
@@ -72,7 +79,8 @@ goes back to it.
 Starting values for the sliders live in `bitminer/data/tuning.json`, every weapon, enemy and
 defense number in `bitminer/data/weapons.json`, and how enemies fight and when waves arrive in
 `bitminer/data/combat.json` (with drills, the mothership's waves and how enemies search in its `drills`,
-`fleet` and `hunt` blocks), the station shop's prices, your starting kit and what each kill pays in `bitminer/data/shop.json`,
+`fleet` and `hunt` blocks, and mines and sentries in its `mines` and `sentries` blocks), the station shop's prices,
+the upgrade levels, your starting kit and what each kill pays in `bitminer/data/shop.json`,
 and the big map in `bitminer/data/map.json`, so none of them are fixed in code. Each game or sandbox fight is also written
 to a `playdata` folder next to the settings file, for the adaptive AI to learn from later.
 
@@ -87,7 +95,8 @@ with pixel-perfect integer scaling.
 - `bitminer/graphics/`: the renderer (outline after rotation, bloom, parallax backdrop, CRT filter)
 - `bitminer/combat/`: the combat simulation (shots, missiles, beams, hits, shields, explosions,
   bumping), the enemy brains and waves (`ai.py`), what the enemy knows and the mothership's waves
-  (`hunt.py`), your weapons (`arsenal.py`), the station shop (`shop.py`), and the sandbox and
+  (`hunt.py`), your weapons (`arsenal.py`), the station shop (`shop.py`), the upgrades you own and
+  the boost meter (`gear.py`), mines and sentries (`defenses.py`), and the sandbox and
   Secure the Base without graphics (`sandbox.py`, `campaign.py`)
 - `bitminer/playdata.py`: the play log
 - `bitminer/gallery/`: the weapon gallery's scenes and the director that plays them

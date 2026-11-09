@@ -93,9 +93,9 @@ class Hunt:
                 self.known = False
                 self.rev += 1
                 st.events.append(("lost",))
-        # Drills they fly past, they remember.
+        # Drills and sentries they fly past, they remember.
         for t in st.structures:
-            if t.kind != "drill" or not t.alive or t.uid in self.drills:
+            if t.kind not in ("drill", "sentry") or not t.alive or t.uid in self.drills:
                 continue
             if any(dist(e.x, e.y, t.x, t.y) <= sight for e in flying):
                 self.drills[t.uid] = t

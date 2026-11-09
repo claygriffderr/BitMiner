@@ -46,7 +46,9 @@ def test_buying_a_weapon_puts_it_in_your_hands_once():
     assert game.shop.buy("sniper") and game.shop.buy("laser")
     assert game.arsenal.owned == ["auto", "sniper", "laser"]
     assert game.credits == 10_000 - price("sniper") - price("laser")
-    assert game.shop.offer("sniper").blocked == "OWNED" and not game.shop.buy("sniper")
+    assert game.shop.offer("laser").blocked == "OWNED" and not game.shop.buy("laser")
+    sniper = game.shop.offer("sniper")      # once you own it, its row sells its upgrades
+    assert sniper.upgrade and sniper.level == 0
     assert game.arsenal.charges == game.arsenal.laser_max
 
 
@@ -120,11 +122,10 @@ def test_health_patches_half_your_hull_and_only_when_hurt():
     assert st.hull == pytest.approx(st.hull_max)
 
 
-def test_upgrades_mines_and_sentries_are_coming_soon():
+def test_nothing_is_coming_soon_any_more():
     game = campaign()
-    game.credits = 100_000
-    for key in ("shield", "armor", "boost", "mine", "sentry_auto", "sentry_sniper", "sentry_missile"):
-        assert game.shop.offer(key).soon and not game.shop.buy(key)
+    for page in PAGES:
+        assert not any(o.soon for o in game.shop.offers(page))
 
 
 def test_purchases_show_up_in_the_next_steps_events():

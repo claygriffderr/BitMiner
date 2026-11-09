@@ -36,6 +36,8 @@ BAR_SHOW = 2.5           # seconds a health bar stays after a hit
 DRILL_BAR = 13           # width of a drill's health bar
 DRILL_STEPS = 8          # its gold bar fills in this many steps
 DRILL_BAR_UP = 14        # the health bar sits this far above the drill's centre
+TURRET_STEPS = 32        # a sentry turret's picture turns in this many steps
+SENTRY_BAR_UP = 13       # its health bar sits this far above its centre
 # How white a full hit flash turns each hull. Big hulls flash less, or steady fire would bleach them.
 FLASH = {"tank": 0.6, "mothership": 0.2}
 
@@ -217,6 +219,17 @@ class StageDrawer:
                 self._put(self.under, A.get(("base", frame), lambda f=frame: S.home_base(f)), st_.x, st_.y)
             elif st_.kind == "drill":
                 self._drill(st_)
+            elif st_.kind == "sentry":
+                self._sentry(st_)
+
+        # Your mines.
+        for m in stage.mines:
+            if m.state == "triggered":
+                frame = int(m.clock * 20) % 2
+            else:
+                frame = int(m.clock * 4) % 4
+            pair = A.get(("mine", m.state, frame), lambda s=m.state, f=frame: I.mine(f, s))
+            self._put(self.under, pair, m.x, m.y)
 
         # Enemy hulls, with the hit flash, laser heat and warp-in on top.
         box = None
@@ -253,7 +266,9 @@ class StageDrawer:
             self._put(self.over, pair, r.x, r.y)
         for m in stage.missiles:
             frame = int(m.clock * 20) % 2
-            if m.owner == "player":
+            if m.style == "sentry":
+                pair = A.get(("msls", frame), lambda f=frame: I.sentry_shot("missile", f))
+            elif m.owner == "player":
                 pair = A.get(("mslp", frame), lambda f=frame: S.missile_player(f))
             else:
                 pair = A.get(("msle", frame), lambda f=frame: S.missile_enemy(f))
@@ -264,6 +279,9 @@ class StageDrawer:
                 pair = A.get(("shot_auto",), S.shot_auto)
             elif s.kind == "sniper":
                 pair = A.get(("shot_sniper",), S.shot_sniper)
+            elif s.kind in ("sentry_auto", "sentry_sniper"):
+                gun = s.kind[7:]
+                pair = A.get(("shot_s", gun), lambda g=gun: I.sentry_shot(g))
             elif s.kind == "infantry":
                 pair = A.get(("shot_inf", frame), lambda f=frame: S.shot_infantry(f))
             else:
@@ -328,6 +346,9 @@ class StageDrawer:
                 pair = A.get(("sbrk", rad, f), lambda: E.shield_break(rad, f))
             elif name == "armor_hit":
                 pair = A.get(("ahit", f), lambda: S.armor_hit(f))
+            elif name == "mine_blast":
+                rad = a.params[0]
+                pair = A.get(("mblast", rad, f), lambda: I.mine_blast(f, rad))
             elif name == "glint":
                 pair = A.get(("glint", f % 2), lambda: S.glint(f % 2))
             elif name == "crumble":
@@ -345,7 +366,8 @@ class StageDrawer:
         if stage.ship_visible and stage.shield > 0 and stage.shield_show > 0:
             rad = int(stage.shield_radius)
             frame = int(t * 14) % 5
-            pair = A.get(("bubble", rad, frame), lambda: E.shield_bubble(rad, frame))
+            lv = stage.shield_level
+            pair = A.get(("bubble", lv, rad, frame), lambda: I.shield_bubble(lv, rad, frame))
             self._put(self.over, pair, ship.x, ship.y, alpha=min(1.0, stage.shield_show * 3))
 
         # Health bars over damaged enemies (the mothership's is in the HUD).
@@ -389,6 +411,29 @@ class StageDrawer:
         hk = int(round(health * (DRILL_BAR - 2)))
         bar = A.get(("dbar", hk), lambda: I.struct_bar(DRILL_BAR, hk / (DRILL_BAR - 2)))
         self._put(self.over, bar, d.x, d.y + DRILL_BAR_UP, light_alpha=0.3)
+
+    def _sentry(self, s) -> None:
+        """A sentry: its platform, the turret turned toward its target, and its health bar."""
+        A = self.art
+        frame = int(s.clock * 2) % 2
+        base_key = ("sbase", s.tier, frame)
+        base_build = lambda t=s.tier, f=frame: I.sentry_base(t, f)
+        self._put(self.under, A.get(base_key, base_build), s.x, s.y)
+        step = int(round(s.angle / 360 * TURRET_STEPS)) % TURRET_STEPS
+        firing = s.fired < 0.08
+        loaded = s.loaded if s.gun == "missile" else 4
+        key = ("turret", s.gun, step, firing, loaded)
+        build = lambda g=s.gun, a=step * 360 / TURRET_STEPS, f=firing, n=loaded: \
+            S._finish(I.turret_interior(g, f, n), I.OUTLINE, a)
+        self._put(self.under, A.get(key, build), s.x, s.y)
+        if s.flash > 0.02:
+            self.under.add(A.plain(base_key + ("flash",), lambda b=base_build: silhouette(b())), s.x, s.y, 0.0,
+                           s.flash * 0.8)
+            self.under.add(A.plain(key + ("flash",), lambda b=build: silhouette(b())), s.x, s.y, 0.0, s.flash * 0.8)
+        w = I.SENTRY_HEALTH_BAR[s.tier]
+        hk = int(round(s.health / max(1.0, s.max_health) * (w - 2)))
+        bar = A.get(("sbar", w, hk), lambda w=w, hk=hk: I.struct_bar(w, hk / (w - 2)))
+        self._put(self.over, bar, s.x, s.y + SENTRY_BAR_UP, light_alpha=0.3)
 
     def _crumble(self, a, f: int):
         """The frames of an asteroid crumbling away, built when it starts."""

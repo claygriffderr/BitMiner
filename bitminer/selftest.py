@@ -134,6 +134,54 @@ def run() -> int:
     assert len(crumble_frames(32, 0, True, 3, (0.0,), 5, 9)) == 9
     assert laser_charge(20)[1] is not None
 
+    # Sprint 8: the upgrade, sentry and mine pictures build, an upgrade takes effect, a sentry
+    # shoots and a mine goes off.
+    from art import items as I
+
+    for tier in (1, 2, 3):
+        assert I.sentry_base(tier).size[0] > 0
+        assert I.shield_bubble(tier, 14).size[0] > 0
+        assert I.boost_flame(tier).size[0] > 0
+    for gun in ("auto", "sniper", "missile"):
+        assert I.turret_interior(gun).size[0] > 0
+        assert I.sentry_shot(gun).size[0] > 0
+    assert I.mine(0, "armed").size[0] > 0 and I.mine_blast(3, 64).size[0] > 0
+
+    game = Campaign(Quiet(), Quiet(), settings.Tuning())
+    st = game.stage
+    st.enemies.clear()
+    game.gear.raise_level("shield")
+    assert st.shield_max > 0 and st.shield == st.shield_max
+    x, y = game.base.x + 400, game.base.y
+    while game.defenses.sentry_room(x, y):
+        x += 30
+    st.ship.x, st.ship.y = x, y
+    still = Controls(aim=0.0)
+    game.defenses.mines_carried = 1
+    game.step(1 / 60, still, False, (x, y), lay_mines=True)
+    assert len(st.mines) == 1, "the mine was not laid"
+    mine = st.mines[0]
+    game.battle.add("infantry", x + 120, y, warp=False)
+    blasted = False
+    for _ in range(60 * 4):
+        if mine.state == "armed" and st.enemies:
+            st.enemies[0].x, st.enemies[0].y = mine.x, mine.y
+        blasted = blasted or any(ev[0] == "mine_blast" for ev in game.step(1 / 60, still, False, (x, y)))
+        if blasted:
+            break
+    assert blasted, "the mine never went off"
+    st.enemies.clear()
+    game.defenses.carried.append(("auto", 1))
+    game.step(1 / 60, still, False, (x, y), place_sentry=True)
+    assert len(game.defenses.sentries) == 1, "the sentry was not placed"
+    game.battle.add("guard", x + 150, y + 40, warp=False)
+    fired = False
+    for _ in range(60 * 4):
+        fired = fired or ("fire", "sentry_auto") in game.step(1 / 60, still, False, (x, y))
+        if fired:
+            break
+    assert fired, "the sentry never fired"
+
     # Settings.
     with tempfile.TemporaryDirectory() as d:
         path = Path(d) / settings.FILE_NAME

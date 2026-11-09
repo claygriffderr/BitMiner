@@ -4,9 +4,10 @@ The screen in `views/campaign.py` draws it; tests run it headless.
 
 You start with one drill, the auto cannon, starting armor and no shield. Drills dig ore out of
 asteroids; you fly past to load it and sell it at home base, then spend the credits at the
-station (home base) on more drills, weapons, missiles and health.
+station (home base) on more drills, weapons, missiles, health, 3-level upgrades (`gear.py`),
+explosive mines and sentries (`defenses.py`). Every kill pays credits too.
 
-Sprint 7 version: the mothership launches waves but doesn't fight back yet and can't be destroyed,
+Sprint 8 version: the mothership launches waves but doesn't fight back yet and can't be destroyed,
 home base can't be destroyed either, and there are no lives (you start again at home base).
 """
 
@@ -25,10 +26,12 @@ from .ai import Battle
 from .arsenal import Arsenal, hold_still
 from .hunt import Fleet, Hunt
 from .shop import Shop
+from .defenses import Defenses
+from .gear import Gear
 from .specs import DRILLS, ENEMIES, SANDBOX, SHOP, WEAPONS
 from .stage import Anim, Stage, Structure, dist
 
-PLAYER_WEAPONS = ("auto", "sniper", "missile", "laser", "ram")
+PLAYER_WEAPONS = ("auto", "sniper", "missile", "laser", "ram")     # hits that give away where you are
 KILL_CREDITS = SHOP.get("kill_credits", {})     # what each enemy pays when you destroy it
 DRILL_LIFT = 5.0        # a drill's centre sits this far out from the edge of its asteroid's picture (its legs on the rock)
 
@@ -90,8 +93,8 @@ class Campaign:
         st.set_missiles(int(start.get("missiles", 0)))
         if "missile" not in self.arsenal.owned and start.get("missiles", 0):
             self.arsenal.own("missile")
-        st.shield_max = 0.0           # no shield until you buy one (next sprint)
-        st.shield = 0.0
+        self.gear = Gear(st)          # no shield, starting armor: upgrades come from the station
+        self.defenses = Defenses(self)
         self.credits = int(start.get("credits", 0))
         self.drills_carried = int(start.get("drills", 1))
         self.drills: list[Structure] = []
@@ -291,6 +294,15 @@ class Campaign:
         next step's events."""
         self.pending.append(event)
 
+    def test_credits(self) -> int:
+        """A testing shortcut (the = key): add `test_credits` credits so every item can be tried
+        without the grind. The play log marks it."""
+        amount = int(SHOP.get("test_credits", 0))
+        if amount:
+            self.credits += amount
+            self.note(("test_credits", amount))
+        return amount
+
     def enemy_near(self) -> bool:
         """An enemy close enough that shopping now is a risk."""
         ship = self.stage.ship
@@ -301,8 +313,10 @@ class Campaign:
     # ------------------------------------------------------------ the update
 
     def step(self, dt: float, controls: Controls, trigger: bool, cursor: tuple[float, float] | None = None,
-             set_drill: bool = False) -> list:
-        """Advance by dt seconds. Returns what happened on the stage this step (its events)."""
+             set_drill: bool = False, boost: bool = False, lay_mines: bool = False,
+             place_sentry: bool = False) -> list:
+        """Advance by dt seconds. Returns what happened on the stage this step (its events).
+        `boost` and `lay_mines` are held keys (Shift, G); `set_drill` and `place_sentry` presses (F, R)."""
         dt = min(max(dt, 0.0), MAX_FRAME)
         st = self.stage
         st.events = []
@@ -310,9 +324,6 @@ class Campaign:
             return st.events
         st.events, self.pending = self.pending, []
         self.time += dt
-        tuning = self.tuning
-        st.ship_mass = max(0.05, tuning.mass)
-        st.bounce = tuning.bounce
         world = self.world
         field = world.field
         n = max(1, math.ceil(dt / PHYSICS_STEP - 1e-9))
@@ -325,8 +336,13 @@ class Campaign:
             st.ship.vy *= keep
             controls = Controls()
             trigger = False
-            set_drill = False
+            set_drill = place_sentry = lay_mines = boost = False
         controls = hold_still(self.arsenal, controls, dt)
+        moving = controls.forward or controls.back or controls.left or controls.right
+        self.gear.step_boost(dt, boost and moving and not st.ship_down)
+        tuning = self.gear.flight(self.tuning)
+        st.ship_mass = max(0.05, tuning.mass)
+        st.bounce = tuning.bounce
         for _ in range(n):
             if not st.ship_down:
                 st.ship.step(controls, tuning, h, world.width, world.height)
@@ -342,10 +358,13 @@ class Campaign:
         st.recentre()
         if set_drill:
             self.place_drill()
+        if place_sentry:
+            self.defenses.place_sentry()
         self.fleet.step(dt)
         self.battle.step(dt)
         self.arsenal.step(dt, trigger and not st.ship_down, cursor)
         st.step(dt)
+        self.defenses.step(dt, lay_mines)
         self._step_drills(dt)
 
         if any(ev[0] == "hit" and ev[1] in PLAYER_WEAPONS for ev in st.events):
@@ -384,7 +403,10 @@ class Campaign:
         """Campaign numbers each play log sample adds."""
         return {"cargo": round(self.cargo, 1), "credits": self.credits, "drills": len(self.drills),
                 "drills_carried": self.drills_carried, "weapons": list(self.arsenal.owned),
-                "missiles": self.stage.missiles_total, "known": self.hunt.known, "out": self.enemies_out()}
+                "missiles": self.stage.missiles_total, "known": self.hunt.known, "out": self.enemies_out(),
+                "upgrades": dict(self.gear.levels), "mines": self.defenses.mines_carried,
+                "mines_out": len(self.stage.mines), "sentries": [(s.gun, s.tier) for s in self.defenses.sentries],
+                "boost": round(self.gear.boost, 2)}
 
     def marks(self, centre: tuple[float, float], half: tuple[float, float]) -> list:
         """Home base and each of your drills that are off screen: (dx, dy, kind, structure) from
@@ -433,15 +455,22 @@ class Autopilot:
     def __init__(self) -> None:
         self.first = True
         self.opened = 0.0
+        self.keys = {"boost": False, "mines": False, "sentry": False}    # held keys and presses this step
 
     def __call__(self, game: Campaign, clock: float) -> tuple[Controls, bool, tuple[float, float] | None, bool]:
         st = game.stage
         ship = st.ship
+        keys = self.keys
+        keys["boost"] = keys["mines"] = keys["sentry"] = False
         if st.ship_down:
             return Controls(), False, None, False
         live = [e for e in st.live_enemies if e.kind != "mothership"]
         near = [e for e in live if dist(ship.x, ship.y, e.x, e.y) < 360]
+        defenses = game.defenses
+        if defenses.carried and not game.station_open and dist(ship.x, ship.y, game.base.x, game.base.y) < 160:
+            keys["sentry"] = not defenses.sentry_room(ship.x, ship.y)      # guard home base
         if near and not game.station_open:
+            keys["mines"] = defenses.mines_carried > 0 and min(dist(ship.x, ship.y, e.x, e.y) for e in near) < 220
             e = min(near, key=lambda e: dist(ship.x, ship.y, e.x, e.y))
             d = dist(ship.x, ship.y, e.x, e.y)
             weapon = "sniper" if "sniper" in game.arsenal.owned and d > 200 else "auto"
@@ -459,6 +488,12 @@ class Autopilot:
             wants.append("drill")
         if game.shop.can_buy("sniper") and game.credits >= price + Shop.item("sniper")["price"]:
             wants.append("sniper")
+        if "sniper" in game.arsenal.owned:
+            for key in ("shield", "mine", "sentry_auto", "boost"):
+                o = game.shop.offer(key)
+                if not o.blocked and o.price is not None and game.credits >= o.price + price:
+                    wants.append(key)
+                    break
         if game.station_open:
             for key in wants:
                 game.shop.buy(key)
@@ -492,6 +527,7 @@ class Autopilot:
                 d = min(loaded, key=lambda d: dist(ship.x, ship.y, d.x, d.y))
                 a = math.radians(d.side)            # come at it from open space, not through its rock
                 want = (d.x + math.sin(a) * 24, d.y + math.cos(a) * 24)
+        keys["boost"] = dist(ship.x, ship.y, *want) > 500
         return _fly_to(ship, want, 8), False, None, False
 
 
