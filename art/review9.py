@@ -475,7 +475,56 @@ def ring_break_anim(r: Review) -> None:
     r.anim("ring_break", frames, times, (W * k, H * k))
 
 
+def loose_drill_anim(r: Review) -> None:
+    """A worked-out rock crumbles, but its drill isn't lost: it pops off and floats free, blinking,
+    until you fly over it and it's back in your hold."""
+    k = 3
+    W, H = 220, 140
+    d, seed = 40, 812
+    rock = I.drained_rock(d, seed, 4, 3)
+    cracks = I.crack_points(rock, [I.rim_point(rock, 60)], 3)
+    rock.alpha_composite(I.crack_overlay(rock, cracks, 3))
+    centre = (80, 74)
+    bits = I.shatter(rock, 9, 7, seed=6, speed=1.2)
+    a = math.radians(60)
+    start = (centre[0] + math.sin(a) * (d / 2 + 5), centre[1] - math.cos(a) * (d / 2 + 5))
+    frames, times = [], []
+    pos = list(start)
+    spin = 60.0
+    got = None
+    for f in range(40):
+        sc = pix.Scene(W, H, k)
+        if f < 4:
+            sc.blit(rock, *centre)
+            place_drill(sc, rock, centre, 60, 0.0, f)
+            text, color = "LAST ORE UNLOADED", "hud_dim"
+        else:
+            g = f - 4
+            if g < len(bits):
+                sc.blit(bits[g], *centre)
+            # The drill drifts off the way it was facing and turns slowly.
+            pos[0] += math.sin(a) * max(0.25, 1.2 - g * 0.08)
+            pos[1] -= math.cos(a) * max(0.25, 1.2 - g * 0.08)
+            spin += 7
+            ship = (W + 20 - (f - 14) * 6.0, 40 + (f - 14) * 0.8) if f >= 14 else None
+            if ship and got is None and math.dist(ship, pos) < 12:
+                got = f
+            if got is None:
+                sc.blit_smooth(I.drill_interior(0.0, f), pos[0], pos[1], angle=spin, outline=OUTLINE)
+                text, color = "DRILL FLOATS FREE", "ion_hi" if f % 4 < 2 else "ion"
+            else:
+                text, color = "+1 DRILL", "ion_hi"
+                if f - got < 3:
+                    sc.blit(E.flare("player", f - got), *pos)
+            if ship:
+                draw_ship(sc, ship, 270, f)
+        label(sc, text, W / 2, H - 10, color)
+        frames.append(sc.render()); times.append(110)
+    r.anim("loose_drill", frames, times, (W * k, H * k))
+
+
 def anims(r: Review) -> None:
+    loose_drill_anim(r)
     tow_anim(r, "A")
     tow_anim(r, "B")
     throw_anim(r)
@@ -492,7 +541,7 @@ def tools_rows(selected: str) -> dict:
     rows = [Row("drill", "DRILL", 150, sub="0 CARRIED  4 OUT"), Row("mine", "MINE", 40, sub="3/5 CARRIED"),
             Row("sentry_auto", "AUTO SENTRY", 800, sub="FROM 800"), Row("sentry_sniper", "SNIPER SENTRY", 1600, sub="FROM 1,600"),
             Row("sentry_missile", "MISSILE SENTRY", 3200, sub="FROM 3,200"),
-            Row("lasso", "LASSO", 1200, level=1), Row("ring", "COLLECTOR RING", 4000, sub="HOLDS 4 ROCKS")]
+            Row("lasso", "LASSO", 700, level=1), Row("ring", "COLLECTOR RING", 4000, sub="HOLDS 4 ROCKS")]
 
     def rock_art(d: int) -> Image.Image:
         return S.tight(S.asteroid(d, 40 + d, 0)).resize((max(5, d // 4), max(5, d // 4)), Image.NEAREST)
@@ -501,9 +550,9 @@ def tools_rows(selected: str) -> dict:
         det = Detail("LASSO", "LEVEL 1 OF 3",
                      ["PRESS Q TO TOW A ROCK BEHIND YOU.", "LET GO AND IT FLIES ON. FAST ROCKS HURT ENEMIES."],
                      [Step("LV1", "SMALL", 500, "owned", art=pix.scale(rock_art(24), 2)),
-                      Step("LV2", "MEDIUM", 1200, "next", art=pix.scale(rock_art(48), 2)),
-                      Step("LV3", "LARGE", 2500, "locked", art=pix.scale(rock_art(96), 2))],
-                     stats=[("TOWS", "SMALL", "MEDIUM")], buy="BUY LV2", price=1200)
+                      Step("LV2", "MEDIUM", 700, "next", art=pix.scale(rock_art(48), 2)),
+                      Step("LV3", "LARGE", 900, "locked", art=pix.scale(rock_art(96), 2))],
+                     stats=[("TOWS", "SMALL", "MEDIUM")], buy="BUY LV2", price=700)
         return dict(credits=credits, rows=rows, selected=5, det=det)
     det = Detail("COLLECTOR RING", "ONE PER GAME",
                  ["PLACE IT WITH T. TOW UP TO 4 ROCKS INSIDE AND THEIR DRILLS SELL ON THEIR OWN.",

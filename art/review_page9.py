@@ -43,12 +43,12 @@ def build(dest: Path) -> Path:
   <figcaption class="cap">
     <div class="toggle" role="group" aria-label="Selected row">{buttons}</div>
     <h3>In the shop</h3>
-    <p class="muted">Both go at the bottom of the Tools page. The lasso works like the other upgrades: 3 levels bought in order, and each step card shows the biggest rock that level can tow. Here you own level 1, and level 2 is next. The ring is a single buy with no levels. Prices are placeholders from the design doc: lasso 500, 1,200 and 2,500, ring 4,000.</p>
+    <p class="muted">Both go at the bottom of the Tools page. The lasso works like the other upgrades: 3 levels bought in order, and each step card shows the biggest rock that level can tow. Here you own level 1, and level 2 is next. The ring is a single buy with no levels. Prices: lasso 500, 700 and 900 (your numbers, kept low so lots of small rocks pay off early), ring 4,000.</p>
   </figcaption>
 </figure>"""
 
     def option(rec: bool, title: str, media: str, text: str) -> str:
-        chip = '<span class="chip">Recommended</span>' if rec else ""
+        chip = '<span class="chip">Your pick</span>' if rec else ""
         return f"""<div class="option{' rec' if rec else ''}">{chip}<h3>{esc(title)}</h3><div class="imgs">{media}</div><p class="muted">{text}</p></div>"""
 
     beam_q = f"""
@@ -89,7 +89,7 @@ def build(dest: Path) -> Path:
 <header>
   <span class="eyebrow">Sprint 9 · Lasso and collector ring · Round 1</span>
   <h1>Hauling art</h1>
-  <p class="lead">Everything new for the lasso and the collector ring, drawn on the game's 640×360 grid before any of it goes into the game: the tow beam, throwing rocks, the ring holding rocks and selling their gold, sentries mounted on it, and the ring breaking. Two choices are marked with my recommendation. Leave a comment on anything you want changed.</p>
+  <p class="lead">Everything new for the lasso and the collector ring, drawn on the game's 640×360 grid before any of it goes into the game: the tow beam, throwing rocks, the ring holding rocks and selling their gold, sentries mounted on it, and the ring breaking. You've approved it and picked the steady beam and placing the ring anywhere. Since then, drills float free when their rock crumbles, and the lasso is cheaper.</p>
   <nav class="jump" aria-label="Sections">
     <a href="#field">In the field</a><a href="#decisions">Your decisions</a><a href="#lasso">Lasso</a>
     <a href="#ring">Collector ring</a><a href="#station">Shop</a><a href="#keys">Keys</a><a href="#next">What's next</a>
@@ -107,7 +107,7 @@ def build(dest: Path) -> Path:
 <section id="decisions">
   <div class="section-head">
     <h2>Your decisions</h2>
-    <p class="muted">Tell me A or B for each. If you don't mind, I'll go with the recommended ones.</p>
+    <p class="muted">You picked A for both, so that's what goes into the game.</p>
   </div>
   <div class="decisions">{beam_q}{place_q}</div>
 </section>
@@ -135,6 +135,7 @@ def build(dest: Path) -> Path:
     {t("sprites", "mounts", "Sentry mounts", "Four per ring", "Mounted sentries are just the turret on the ring's mount, with no platform and no health bar of their own. They're part of the ring.", span2=True)}
     {t("anims", "ring_break", "When the ring breaks", "Its sentries go with it", "Press R inside the ring and the sentry mounts on the next free mount. Enemy hits on the ring or on its turrets wear down the ring's health. At zero it breaks apart and its mounted sentries are lost. The rocks and their drills stay where they were, unprotected.")}
     {t("sprites", "shop_icons", "Shop icons", "13 px", "The lasso is your ship's tail with a beam to a rock. The ring shows the hoop with rocks inside.")}
+    {t("anims", "loose_drill", "Drills float free", "New: nothing is used up", "When a worked-out rock crumbles, its drill pops off and drifts away slowly, blinking cyan. Fly over it to put it back in your hold, then set it on a fresh rock. That makes lots of drills on small rocks worth it.", wide=True)}
   </div>
 </section>
 
@@ -157,7 +158,7 @@ def build(dest: Path) -> Path:
 <section id="next">
   <div class="panel next">
     <h2>What's next</h2>
-    <p>Once you're happy with these and have picked A or B for both questions, sprint 10 builds the lasso and the collector ring into the game. Every number (beam length, the rock size each level can tow, throw damage and the speed it needs, ring health, prices) goes in the data files and the in-game tuning menu. The full loop and balancing come after that.</p>
+    <p>Sprint 10 builds the lasso, the collector ring and loose drills into the game. Every number (beam length, the rock size each level can tow, throw damage and the speed it needs, ring health, prices) goes in the data files and the in-game tuning menu. The full loop and balancing come after that.</p>
     <p class="muted">Everything here is drawn by code in the repo, so changes are quick. The source is in <code>art/haul.py</code>.</p>
   </div>
 </section>
