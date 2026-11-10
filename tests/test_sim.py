@@ -91,8 +91,8 @@ def test_a_game_reports_everything_the_guide_asks_for(short_game):
     assert len(g["mining"]) == len(g["combat"]) == len(g["out"]) == len(g["balance"]) == 4
     assert sum(g["mining"]) > 200                 # one drill digs 120 a minute
     assert g["purchases"][0]["key"] == "sniper" and g["bought"]["sniper"] < 3.0
-    assert g["waves"][0]["n"] == 1 and g["waves"][0]["size"] == 3
-    assert g["waves"][0]["killed"] + g["waves"][0]["home"] <= 3
+    assert g["waves"][0]["n"] == 1 and g["waves"][0]["size"] == 4
+    assert g["waves"][0]["killed"] + g["waves"][0]["home"] <= 4
     assert sum(g["kills"].values()) >= 1 and sum(g["combat"]) > 0
     assert g["step_ms"]["mean"] > 0 and g["step_ms"]["worst_second"] >= g["step_ms"]["mean"]
     assert abs(sum(g["time_in"].values()) - 240.0) < 0.5

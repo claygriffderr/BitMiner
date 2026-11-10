@@ -5,7 +5,8 @@ asteroid next to you, E at the station to open its shop (E or Esc closes it), Sh
 (held) to lay mines, R to place a sentry (inside your collector ring, to mount it there), Q to grab
 or let go of an asteroid with the lasso, T (hold, then let go) to place the collector ring, and N
 to call the next wave now. = adds test credits
-(`test_credits` in shop.json) so every item can be tried. Backspace starts a new game, on a map as
+(`test_credits` in shop.json) so every item can be tried, and M skips the wave count ahead to just
+before the next massive wave (both are testing shortcuts, marked in the play log). Backspace starts a new game, on a map as
 big as the MAP SIZE slider says.
 """
 
@@ -82,6 +83,12 @@ class CampaignView(SandboxView):
             return True
         if key in TEST_CREDIT_KEYS:
             self._test_credits()
+            return True
+        if key == arcade.key.M and not self.paused:
+            at = game.fleet.skip_to_massive()
+            if at:
+                game.note(("wave_skip", at))
+                self.hud.notice(f"SKIPPED AHEAD: WAVE {at} IS THE MASSIVE ONE. N SENDS THE NEXT WAVE")
             return True
         return super().on_key_press(key, modifiers)
 

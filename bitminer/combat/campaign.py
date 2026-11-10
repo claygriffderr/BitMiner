@@ -11,8 +11,10 @@ Sprint 10 adds hauling (`haul.py`): the lasso tows asteroids and throws them at 
 collector ring holds up to 4 asteroids and sells their drills' ore by itself, and drills float free
 when their asteroid crumbles instead of being used up.
 
-Sprint 10 version: the mothership launches waves but doesn't fight back yet and can't be destroyed,
-home base can't be destroyed either, and there are no lives (you start again at home base).
+Sprint 12 (the pacing guide's sprint B): waves come on a shrinking timer and are built from a
+threat budget (`hunt.Fleet`), tanks arrive with escorts from wave 12, and every 10th wave from 30
+is a massive one. The mothership still doesn't fight back and can't be destroyed, home base can't
+be destroyed either, and there are no lives yet (you start again at home base).
 """
 
 from __future__ import annotations
@@ -91,7 +93,7 @@ class Campaign:
         ms.immune = True              # it can't fight back yet, so it can't be beaten yet either
         self.mothership = ms
         self.battle.hunt = Hunt(self.battle, lay.base, ms)
-        self.fleet = Fleet(self.battle, ms)
+        self.fleet = Fleet(self.battle, ms, tuning=tuning)
         # What you start with.
         start = SHOP["start"]
         self.arsenal = Arsenal(st, owned=list(start["weapons"]))

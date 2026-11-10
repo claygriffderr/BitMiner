@@ -101,8 +101,12 @@ class Defenses:
             if m.state == "laid" and m.age >= float(MINES["arm_time"]):
                 m.state = "armed"
             elif m.state == "armed":
+                wide = reach + 60.0          # further than any hull that could set it off
                 for e in st.enemies:
-                    if e.targetable and e.kind != "mothership" and dist(e.x, e.y, m.x, m.y) <= e.body_r * 0.6 + reach:
+                    dx, dy = e.x - m.x, e.y - m.y
+                    if dx > wide or dx < -wide or dy > wide or dy < -wide:
+                        continue
+                    if e.targetable and e.kind != "mothership" and math.hypot(dx, dy) <= e.body_r * 0.6 + reach:
                         m.state = "triggered"
                         m.fuse = float(MINES["fuse"])
                         m.clock = 0.0
@@ -188,10 +192,12 @@ class Defenses:
         st = self.stage
         reach = float(spec["range"])
         best, bd = None, math.inf
+        wide = reach + 80.0                  # the mothership's hull counts from its edge
         for e in st.enemies:
-            if not e.targetable:
+            dx, dy = e.x - s.x, e.y - s.y
+            if dx > wide or dx < -wide or dy > wide or dy < -wide or not e.targetable:
                 continue
-            d = dist(s.x, s.y, e.x, e.y)
+            d = math.hypot(dx, dy)
             if d > reach + (e.body_r if e.kind == "mothership" else 0.0) or d >= bd:
                 continue
             if st.rock_hit(s.x, s.y, e.x, e.y) is not None:
@@ -212,7 +218,9 @@ class Defenses:
         s.fired += dt
         t = s.target
         reach = float(spec["range"])
-        lost = t is None or not t.targetable or dist(s.x, s.y, t.x, t.y) > reach * 1.1
+        # A target that dies or gets away is replaced at once; with nothing to shoot it looks
+        # round every RETARGET seconds, not every step.
+        lost = t is not None and (not t.targetable or dist(s.x, s.y, t.x, t.y) > reach * 1.1)
         if lost or s.look <= 0:
             s.target = t = self._pick(s, spec)
             s.look = RETARGET

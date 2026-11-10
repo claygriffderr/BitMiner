@@ -1,5 +1,5 @@
 {
-  "about": "Where a fresh install starts and what RESET goes back to, plus each slider's range. Nothing here is fixed: every value can be changed with the tuning panel (Tab), and those changes save to flight_tuning.json next to BitMiner.exe. Starting values are Clay's tuning from the sprint 2 flight test. CAMERA AIM (new in sprint 4) leans the view toward the mouse in a fight, so you can see what you aim at. MAP SIZE (new in sprint 5) is how big the Secure the Base map is, in times the combat sandbox's size each way; a change takes effect on the next new game (Backspace). TOW WEIGHT (new in sprint 10) is how heavy a rock on the lasso feels, as a share of its real weight: lower tows big rocks more easily. THROW POWER (new in sprint 10) multiplies the damage a thrown rock does; 0 makes thrown rocks harmless.",
+  "about": "Where a fresh install starts and what RESET goes back to, plus each slider's range. Nothing here is fixed: every value can be changed with the tuning panel (Tab), and those changes save to flight_tuning.json next to BitMiner.exe. Starting values are Clay's tuning from the sprint 2 flight test. CAMERA AIM (new in sprint 4) leans the view toward the mouse in a fight, so you can see what you aim at. MAP SIZE (new in sprint 5) is how big the Secure the Base map is, in times the combat sandbox's size each way; a change takes effect on the next new game (Backspace). TOW WEIGHT (new in sprint 10) is how heavy a rock on the lasso feels, as a share of its real weight: lower tows big rocks more easily. THROW POWER (new in sprint 10) multiplies the damage a thrown rock does; 0 makes thrown rocks harmless. WAVE GAP (new in sprint 12) multiplies the time between Secure the Base waves: lower sends them faster. WAVE SIZE (new in sprint 12) multiplies how many ships each wave has, massive waves included.",
   "flight": [
     {"key": "thrust_main",  "label": "MAIN THRUST",  "value": 150,  "min": 60,  "max": 700, "step": 10},
     {"key": "thrust_side",  "label": "SIDE THRUST",  "value": 100,  "min": 30,  "max": 500, "step": 10},
@@ -14,6 +14,8 @@
     {"key": "shake",        "label": "SCREEN SHAKE", "value": 1.0,  "min": 0,   "max": 2,   "step": 0.1},
     {"key": "map_size",     "label": "MAP SIZE",     "value": 10,   "min": 3,   "max": 16,  "step": 1},
     {"key": "tow_weight",   "label": "TOW WEIGHT",   "value": 0.25, "min": 0.05, "max": 1,  "step": 0.05},
-    {"key": "throw_power",  "label": "THROW POWER",  "value": 1.0,  "min": 0,   "max": 3,   "step": 0.1}
+    {"key": "throw_power",  "label": "THROW POWER",  "value": 1.0,  "min": 0,   "max": 3,   "step": 0.1},
+    {"key": "wave_gap",     "label": "WAVE GAP",     "value": 1.0,  "min": 0.25, "max": 2,  "step": 0.05},
+    {"key": "wave_size",    "label": "WAVE SIZE",    "value": 1.0,  "min": 0.25, "max": 3,  "step": 0.05}
   ]
 }

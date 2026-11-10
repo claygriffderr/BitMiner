@@ -157,6 +157,7 @@ def run() -> int:
 
     game = Campaign(Quiet(), Quiet(), settings.Tuning())
     assert len(game.world.field) > 5000, "the big map came out nearly empty"
+    game.fleet.timer = min(game.fleet.timer, 30.0)       # the first wave comes at 60 s: bring it inside this run
     opened = False
     with tempfile.TemporaryDirectory() as d:
         log = PlayLog(Path(d), {"mode": "selftest-campaign"})
@@ -240,6 +241,26 @@ def run() -> int:
 
     # The game plays the same at any frame rate: towing and fire rates (pacing guide, sprint A).
     frame_rate_check()
+
+    # Sprint 12 (pacing guide, sprint B): the wave timer shrinks, wave 30 is the massive one and
+    # leaves in parts, and a tank that knows where you are fires its volley.
+    from .combat.specs import AI, FLEET
+    game = Campaign(Quiet(), Quiet(), settings.Tuning())
+    fleet = game.fleet
+    assert fleet.gap_after(1) > fleet.gap_after(25) == FLEET["gap_min"], "the wave timer doesn't shrink"
+    assert sum(fleet.counts(30).values()) == sum(FLEET["massive"]["ships"].values()), "wave 30 isn't massive"
+    assert len(fleet.compose(30)[1]) == FLEET["massive"]["groups"]
+    assert fleet.counts(FLEET["unlock"]["tank"])["tank"] == 1, "no tank in the first siege"
+    st = game.stage
+    fleet.timer = 1e9
+    tank = game.battle.add_group("tank", 1, st.ship.x + AI["tank"]["range"] - 60, st.ship.y, warp=False)[0]
+    game.hunt.known, game.hunt.since_seen = True, 0.0
+    volley = 0
+    for _ in range(60 * 8):
+        game.hunt.reveal()
+        game.step(1 / 60, Controls(aim=0.0), False, None)
+        volley = max(volley, sum(1 for m in st.missiles if m.owner == "enemy"))
+    assert volley == AI["tank"]["volley"], f"the tank fired {volley} missiles, not a volley"
 
     # Upgrades have as many levels as their price list is long, and the station shows them.
     from .combat.specs import SHOP

@@ -6,7 +6,7 @@ where you were last seen, searches round it, and eventually gives up and flies h
 mothership. They also remember any of your drills, sentries or collector ring they come across, and
 raid those.
 
-The mothership launches each wave from its hangar once only a few enemies are still out.
+The mothership launches its waves on a timer, each one built from a threat budget (`Fleet`).
 
 Numbers live in `data/combat.json` (the `hunt` and `fleet` blocks).
 """
@@ -176,19 +176,35 @@ class Task:
         return hx, hy, "home"
 
 
-class Fleet:
-    """Launches the waves listed in `combat.json` (`fleet`) from the mothership: the first after
-    `first` seconds, then each next one `gap` seconds after only `few_left` enemies are still out."""
+def share_out(total: int, parts: int) -> list[int]:
+    """`total` things split between `parts` as evenly as it goes, the odd ones spread out along the
+    list rather than bunched at its start."""
+    if parts <= 0:
+        return []
+    base, odd = divmod(max(0, int(total)), parts)
+    out = [base] * parts
+    for j in range(odd):
+        out[(j * parts + parts // 2) // odd] += 1
+    return out
 
-    def __init__(self, battle: "Battle", mothership: Enemy, spec: dict | None = None):
+
+class Fleet:
+    """Launches the mothership's waves on a timer that shrinks as the game goes on, each one built
+    by spending that wave's threat budget the way its recipe says. Every `massive.every`th wave from
+    `massive.first` is a massive one, released in parts. Numbers: the `fleet` block of `combat.json`;
+    `tuning` (the WAVE GAP and WAVE SIZE sliders) scales the gaps and the sizes."""
+
+    def __init__(self, battle: "Battle", mothership: Enemy, spec: dict | None = None, tuning=None):
         self.battle = battle
         self.mothership = mothership
         self.spec = spec or FLEET
+        self.tuning = tuning
         self.launched = 0
         self.timer = float(self.spec["first"])
-        self.wait = 0.0
         self.name = ""
         self.last_size = 0
+        self.held = False             # the next wave is due but `cap` enemies are still out
+        self.parts: list[list] = []   # a wave still leaving: [seconds to go, wave, clusters, bearing]
         self._now = False
 
     @property
@@ -198,64 +214,232 @@ class Fleet:
     def call_now(self) -> None:
         self._now = True
 
-    def out(self) -> int:
-        """Enemies still out, not counting ships on their way home."""
-        battle = self.battle
-        return sum(1 for e in battle.stage.enemies
-                   if e.alive and e.dying < 0 and e.brain is not None and not battle.heading_home(e))
+    # ------------------------------------------------------------ the plan
+
+    def _scale(self, key: str) -> float:
+        return float(getattr(self.tuning, key, 1.0)) if self.tuning is not None else 1.0
+
+    def is_massive(self, n: int) -> bool:
+        m = self.spec.get("massive")
+        if not m:
+            return False
+        first, every = int(m["first"]), max(1, int(m["every"]))
+        return n >= first and (n - first) % every == 0
 
     @property
-    def few_left(self) -> int:
-        """How few must be left before the next wave: `few_left`, but never more than
-        `few_left_share` of the last wave, so a small wave has to be mostly beaten first."""
+    def massive_in(self) -> int | None:
+        """How many launches away the next massive wave is (1: it is the next one)."""
+        m = self.spec.get("massive")
+        if not m:
+            return None
+        nxt = self.launched + 1
+        first, every = int(m["first"]), max(1, int(m["every"]))
+        at = first if nxt <= first else first + -(-(nxt - first) // every) * every
+        return at - self.launched
+
+    @property
+    def warning(self) -> int | None:
+        """`massive_in` once it is close enough to warn of (`massive.warn` waves), else None."""
+        k = self.massive_in
+        return k if k is not None and k <= int(self.spec["massive"].get("warn", 3)) else None
+
+    def skip_to_massive(self) -> int:
+        """A testing shortcut (the M key): move the wave count on so the massive wave is `warn`
+        launches away. Returns the wave it will be."""
+        k = self.massive_in
+        if k is None:
+            return 0
+        at = self.launched + k
+        self.launched = max(self.launched, at - int(self.spec["massive"].get("warn", 3)) - 1)
+        return at
+
+    def budget(self, n: int) -> float:
+        """Wave n's threat points."""
+        b = self.spec["budget"]
+        late = int(b.get("late_from", 10 ** 9))
+        if n > late:
+            points = float(b["late_base"]) + float(b["late_step"]) * (n - late)
+        else:
+            points = float(b["base"]) + float(b["per_wave"]) * n + float(b["per_wave_sq"]) * n * n
+        return points * self._scale("wave_size")
+
+    def gap_after(self, n: int) -> float:
+        """Seconds from wave n's launch to the next."""
         spec = self.spec
-        return min(int(spec["few_left"]), int(self.last_size * float(spec.get("few_left_share", 0.5))))
+        if self.is_massive(n):
+            gap = float(spec["cooloff"])
+        else:
+            gap = max(float(spec["gap_min"]), float(spec["gap_start"]) - float(spec["gap_step"]) * (n - 1))
+        return gap * self._scale("wave_gap")
+
+    def recipe(self, n: int) -> dict:
+        recipes = self.spec["recipes"]
+        for r in recipes:
+            if "from" in r and n >= int(r["from"]) and (n - int(r["from"])) % max(1, int(r.get("every", 1))) == 0:
+                return r
+        plain = [r for r in recipes if "from" not in r] or recipes
+        return plain[(n - 1) % len(plain)]
+
+    def counts(self, n: int) -> dict[str, int]:
+        """How many of each kind wave n has."""
+        spec = self.spec
+        if self.is_massive(n):
+            scale = self._scale("wave_size")
+            return {k: int(v * scale + 0.5) for k, v in spec["massive"]["ships"].items()}
+        threat, unlock = spec["threat"], spec["unlock"]
+        recipe = self.recipe(n)
+        points = self.budget(n)
+        tanks = 0
+        if n >= int(unlock.get("tank", 0)):
+            tanks = int(points // float(spec["tank_every"])) + int(recipe.get("tanks", 0))
+        rest = max(0.0, points - tanks * float(threat["tank"]))
+        mix = {k: float(v) for k, v in recipe["mix"].items()}
+        for kind in ("guard", "rapid"):
+            if n < int(unlock.get(kind, 0)):
+                mix["infantry"] = mix.get("infantry", 0.0) + mix.pop(kind, 0.0)
+        whole = sum(mix.values()) or 1.0
+        guards = int(rest * mix.get("guard", 0.0) / whole / float(threat["guard"]) + 0.5)
+        rapids = int(rest * mix.get("rapid", 0.0) / whole / float(threat["rapid"]) + 0.5)
+        left = rest - guards * float(threat["guard"]) - rapids * float(threat["rapid"])
+        infantry = max(0, int(left / float(threat["infantry"]) + 0.5))
+        if tanks:                     # a tank never comes alone
+            guards = max(guards, tanks * int(spec["escort"]["guard"]))
+            infantry = max(infantry, tanks * int(spec["escort"]["infantry"]))
+        if not (tanks or guards or rapids or infantry):
+            infantry = 1
+        return {"infantry": infantry, "rapid": rapids, "guard": guards, "tank": tanks}
+
+    def clusters(self, counts: dict[str, int], formations: list[str]) -> list[list[tuple]]:
+        """Those ships as the bunches that leave the hangar together: each tank with its escort,
+        each infantry squad with its share of the guards, and the rapid ships in their own groups.
+        A bunch is a list of (kind, count, formation)."""
+        spec = self.spec
+        lo, hi = (int(v) for v in spec["squad"])
+        tanks, guards = counts.get("tank", 0), counts.get("guard", 0)
+        infantry, rapids = counts.get("infantry", 0), counts.get("rapid", 0)
+        forms = formations or ["line"]
+        out: list[list[tuple]] = []
+        k = 0
+        for _ in range(tanks):
+            g = min(guards, int(spec["escort"]["guard"]))
+            i = min(infantry, max(lo, int(spec["escort"]["infantry"])))
+            guards -= g
+            infantry -= i
+            bunch = [("tank", 1, "line")]
+            if i:
+                bunch.append(("infantry", i, forms[k % len(forms)]))
+                k += 1
+            if g:
+                bunch.append(("guard", g, "line"))
+            out.append(bunch)
+        squads = share_out(infantry, -(-infantry // hi)) if infantry else []
+        walls = share_out(guards, len(squads)) if squads else []
+        for size, g in zip(squads, walls):
+            bunch = [("infantry", size, forms[k % len(forms)])]
+            k += 1
+            if g:
+                bunch.append(("guard", g, "line"))
+            out.append(bunch)
+        if guards and not squads:
+            out.append([("guard", guards, "line")])
+        per = max(1, int(spec.get("rapid_group", 4)))
+        for size in (share_out(rapids, -(-rapids // per)) if rapids else []):
+            out.append([("rapid", size, "line")])
+        return out
+
+    def compose(self, n: int) -> tuple[str, list[list[list[tuple]]]]:
+        """Wave n: its name, and the parts it leaves in (a list of bunches each)."""
+        spec = self.spec
+        counts = self.counts(n)
+        if not self.is_massive(n):
+            recipe = self.recipe(n)
+            return recipe["name"], [self.clusters(counts, recipe.get("formations", []))]
+        m = spec["massive"]
+        parts = max(1, int(m.get("groups", 1)))
+        split = {kind: share_out(total, parts) for kind, total in counts.items()}
+        forms = list(m.get("formations", ("wedge", "line", "arc")))
+        return m.get("name", "MASSIVE WAVE"), [
+            self.clusters({kind: split[kind][i] for kind in split}, forms[i % len(forms):] + forms[:i % len(forms)])
+            for i in range(parts)]
+
+    # ------------------------------------------------------------ the update
+
+    def out(self) -> int:
+        """Enemies still out."""
+        return sum(1 for e in self.battle.stage.enemies if e.alive and e.dying < 0 and e.kind != "mothership")
+
+    @property
+    def next_in(self) -> float | None:
+        """Seconds to the next launch, or None while it is held back by `cap`."""
+        return None if self.held else max(0.0, self.timer)
 
     def step(self, dt: float) -> None:
         if not self.mothership.alive or self.mothership.dying >= 0:
             return
+        for part in self.parts:
+            part[0] -= dt
+        while self.parts and self.parts[0][0] <= 0:
+            _, n, bunches, bearing = self.parts.pop(0)
+            self._release(n, bunches, bearing)
+            left = len(self.parts)
+            self.battle.stage.events.append(("wave_part", n, self._parts - left, self._parts))
         if self._now:
             self._now = False
             self.launch()
             return
-        if self.launched == 0:
-            self.timer -= dt
-            if self.timer <= 0:
-                self.launch()
+        self.timer -= dt
+        if self.timer > 0:
             return
-        if self.out() <= self.few_left:
-            self.wait += dt
-            if self.wait >= self.spec["gap"]:
-                self.launch()
-        else:
-            self.wait = 0.0
+        self.held = self.out() >= int(self.spec.get("cap", 10 ** 6))
+        if not self.held:
+            self.launch()
+
+    _parts = 1
 
     def launch(self) -> None:
         spec = self.spec
+        st = self.battle.stage
+        n = self.launched + 1
+        name, parts = self.compose(n)
+        gap = float(spec.get("massive", {}).get("group_gap", 0.0))
+        turn = 360.0 / len(parts)
+        self._parts = len(parts)
+        self.launched = n
+        self.name = name
+        self.held = False
+        self.timer = self.gap_after(n)
+        self.last_size = sum(count for part in parts for bunch in part for _, count, _ in bunch)
+        st.events.append(("wave", n, name, self.last_size))
+        self._release(n, parts[0], 0.0)
+        for i, bunches in enumerate(parts[1:], 1):
+            self.parts.append([gap * i, n, bunches, turn * i])
+
+    def _release(self, n: int, bunches: list[list[tuple]], bearing: float) -> None:
+        """Out of the hangar on the side facing where they're headed (`bearing` degrees round from it)."""
         battle = self.battle
         st = battle.stage
         ms = self.mothership
         rng = battle.rng
-        waves = spec["list"]
-        wave = waves[self.launched % len(waves)]
-        lap = self.launched // len(waves)
-        groups = wave["groups"]
-        # Out of the hangar on the side facing where they're headed.
         hunt = battle.hunt
         aim = st.ship if hunt is None or hunt.known else None
         tx, ty = (aim.x, aim.y) if aim is not None else hunt.near_copy(hunt.last_seen, (ms.x, ms.y))
-        toward = angle_to(tx - ms.x, ty - ms.y)
-        R = 120.0
-        size = 0
-        for gi, g in enumerate(groups):
-            kind = g["kind"]
-            count = int(g["count"]) + lap * int(spec.get("grow", 0))
-            b = toward + (gi - (len(groups) - 1) / 2) * 40.0 + rng.uniform(-8.0, 8.0)
+        toward = angle_to(tx - ms.x, ty - ms.y) + bearing
+        fan = min(40.0, 200.0 / max(1, len(bunches)))
+        for bi, bunch in enumerate(bunches):
+            b = toward + (bi - (len(bunches) - 1) / 2) * fan + rng.uniform(-6.0, 6.0)
             fx, fy = forward_vector(b)
-            battle.add_group(kind, count, ms.x + fx * R, ms.y + fy * R, g.get("formation", "line"))
-            size += count
-        self.last_size = size
-        self.launched += 1
-        self.wait = 0.0
-        self.name = wave["name"]
-        st.events.append(("wave", self.launched, self.name))
+            R = 120.0 + 70.0 * (bi % 3)
+            x, y = ms.x + fx * R, ms.y + fy * R
+            tank, squad = None, None
+            for kind, count, formation in bunch:
+                # A tank sits behind its escort.
+                back = 50.0 if kind == "tank" else 0.0
+                members = battle.add_group(kind, count, x - fx * back, y - fy * back, formation)
+                for e in members:
+                    e.wave = n
+                if kind == "tank" and members:
+                    tank = members[0]
+                elif kind == "infantry" and members:
+                    squad = members[0].brain.squad
+            if tank is not None and squad is not None:
+                squad.escort = tank

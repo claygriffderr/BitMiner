@@ -1,7 +1,7 @@
 {
   "about": "How enemies fight and how the combat sandbox runs. Distances are game pixels, times are seconds, angles are degrees. Enemy speeds, health and weapons are in weapons.json. Nothing here is fixed in code.",
   "ai": {
-    "about": "infantry: squads hold `standoff` from you in a formation `spacing` apart and at least `squad_gap` from the next squad, re-plan every `replan` seconds, drift around you at `orbit` degrees a second (reversing with chance `orbit_flip` at each re-plan), and fire when you are within `fire_range` and no rock is in the way. `aim_lead` is how much of your movement they lead (0 aims where you are, 1 leads fully) and `spread` the scatter of their aim. guard: forms a wall `wall_gap` in front of the squad it guards, sharing the squad's width with the other guards (at least `spacing` each), so the infantry shoot over it. It only rams once that squad is down to `ram_when_left` ships, or with no squad to guard once you are within `alone_ram`; you must be within `ram_range` with no rock in the way. During the warning it keeps turning toward you at up to `track_turn` degrees a second, and the lane locks (flashing fast) for the last `lock_time` seconds before it charges. Then it waits `ram_cooldown`. rapid: waits `hold_range` behind you (up to `hold_spread` degrees either side) for `rest` seconds, dives past you `pass_offset` to one side, fires a burst inside `fire_range` (leading you by `aim_lead`, scattered by `spread`), and carries on `overshoot` past you, giving up after `pass_time` seconds. avoid: everyone looks `look` ahead for rocks and swings wide by `margin`. Every `stuck_check` seconds of trying to fly somewhere, a ship that covered less than `stuck_ratio` of the way is stuck: it looks `probe` out in `probe_ways` directions and flies straight along the most open one for up to `unstick_time` seconds, picking more loosely (up to `unstick_swing` degrees off) each time it gets stuck again in a row. Then it goes round: it flies to a point `detour` off to the side of the straight way to its goal (for up to `detour_time` seconds, further and on the other side if it gets stuck again) before heading for the goal again.",
+    "about": "infantry: squads hold `standoff` from you in a formation `spacing` apart and at least `squad_gap` from the next squad, re-plan every `replan` seconds, drift around you at `orbit` degrees a second (reversing with chance `orbit_flip` at each re-plan), and fire when you are within `fire_range` and no rock is in the way. `aim_lead` is how much of your movement they lead (0 aims where you are, 1 leads fully) and `spread` the scatter of their aim. guard: forms a wall `wall_gap` in front of the squad it guards, sharing the squad's width with the other guards (at least `spacing` each), so the infantry shoot over it. It only rams once that squad is down to `ram_when_left` ships, or with no squad to guard once you are within `alone_ram`; you must be within `ram_range` with no rock in the way. During the warning it keeps turning toward you at up to `track_turn` degrees a second, and the lane locks (flashing fast) for the last `lock_time` seconds before it charges. Then it waits `ram_cooldown`. rapid: waits `hold_range` behind you (up to `hold_spread` degrees either side) for `rest` seconds, dives past you `pass_offset` to one side, fires a burst inside `fire_range` (leading you by `aim_lead`, scattered by `spread`), and carries on `overshoot` past you, giving up after `pass_time` seconds. tank: flies to within `range` of you (or, while the enemy doesn't know where you are, of the drill, sentry or ring it raids), then holds there and fires `volley` homing missiles every `volley_every` seconds, two at a time `volley_gap` apart; its pods show empty for `reload_show` seconds. It re-plans every `replan` seconds. Its escort squad stays between it and its target, within `escort_leash` of the tank. Its health and slow self-repair are in weapons.json. avoid: everyone looks `look` ahead for rocks and swings wide by `margin`. Every `stuck_check` seconds of trying to fly somewhere, a ship that covered less than `stuck_ratio` of the way is stuck: it looks `probe` out in `probe_ways` directions and flies straight along the most open one for up to `unstick_time` seconds, picking more loosely (up to `unstick_swing` degrees off) each time it gets stuck again in a row. Then it goes round: it flies to a point `detour` off to the side of the straight way to its goal (for up to `detour_time` seconds, further and on the other side if it gets stuck again) before heading for the goal again.",
     "infantry": {"standoff": 140, "spacing": 22, "replan": 0.9, "orbit": 14, "orbit_flip": 0.08,
                  "fire_range": 240, "aim_lead": 0.6, "spread": 4.0, "squad_gap": 40},
     "guard": {"wall_gap": 46, "spacing": 24, "replan": 0.6, "ram_range": 230, "ram_cooldown": 4.0,
@@ -9,6 +9,8 @@
               "track_turn": 220, "lock_time": 0.15},
     "rapid": {"hold_range": 300, "hold_spread": 60, "replan": 0.5, "rest": [1.0, 2.4], "pass_offset": 26,
               "fire_range": 180, "aim_lead": 0.5, "spread": 3.0, "overshoot": 170, "pass_time": 3.0},
+    "tank": {"range": 600, "volley": 4, "volley_every": 6.0, "volley_gap": 0.35, "reload_show": 1.5,
+             "replan": 1.0, "escort_leash": 220},
     "avoid": {"look": 46, "margin": 6, "stuck_check": 1.0, "stuck_ratio": 0.3, "unstick_time": 0.8,
               "unstick_swing": 35, "probe": 90, "probe_ways": 16,
               "detour": 90, "detour_time": 2.5}
@@ -50,24 +52,31 @@
     "dock": 150
   },
   "fleet": {
-    "about": "Secure the Base waves. The mothership launches the first wave `first` seconds in, and each next one `gap` seconds after only `few_left` or fewer enemies are still out (ships flying home don't count), and no more than `few_left_share` of the last wave, so a small wave has to be mostly beaten first. Each wave leaves from the mothership's hangar, so it takes a while to reach you; an alert says it is on its way, with no countdown. The list repeats with `grow` more ships in every group each time round. formation is line, wedge or arc.",
-    "first": 30,
-    "few_left": 3,
-    "few_left_share": 0.5,
-    "gap": 5,
-    "grow": 1,
-    "list": [
-      {"name": "SCOUTS", "groups": [{"kind": "infantry", "count": 3, "formation": "line"}]},
-      {"name": "PATROL", "groups": [{"kind": "infantry", "count": 4, "formation": "wedge"}]},
-      {"name": "SHIELD WALL", "groups": [{"kind": "infantry", "count": 4, "formation": "line"},
-                                         {"kind": "guard", "count": 2}]},
-      {"name": "RAIDERS", "groups": [{"kind": "rapid", "count": 3}, {"kind": "infantry", "count": 3, "formation": "arc"}]},
-      {"name": "TWO SQUADS", "groups": [{"kind": "infantry", "count": 4, "formation": "wedge"},
-                                        {"kind": "infantry", "count": 4, "formation": "arc"},
-                                        {"kind": "guard", "count": 1}]},
-      {"name": "THE SWARM", "groups": [{"kind": "infantry", "count": 5, "formation": "wedge"},
-                                       {"kind": "infantry", "count": 5, "formation": "line"},
-                                       {"kind": "guard", "count": 2}, {"kind": "rapid", "count": 3}]}
+    "about": "Secure the Base waves. The mothership launches the first wave `first` seconds in. After wave n the next one leaves `gap_start` - `gap_step` x (n - 1) seconds later, never less than `gap_min`, whether or not you have beaten the last one; the WAVE GAP slider multiplies these. A wave waits while `cap` or more enemies are still out. Each wave leaves from the mothership's hangar, so it takes a while to reach you; an alert says it is on its way and the HUD counts down to the next launch. SIZE: each wave has a threat budget, `budget.base` + `per_wave` x n + `per_wave_sq` x n squared up to wave `late_from`, and `late_base` + `late_step` x (n - `late_from`) after it; the WAVE SIZE slider multiplies it. Each ship costs its `threat` points. A kind of ship only appears from its `unlock` wave on (before that its share goes to infantry). A wave's recipe shares the budget out between the kinds by `mix` (parts of the whole), and gives its infantry squads their `formations` in turn (line, wedge or arc). Recipes without `from` take turns in the order listed; one with `from` and `every` takes over on those waves. Tanks are bought first: one for every `tank_every` points of budget, plus a recipe's own `tanks`. A tank never comes alone: each brings `escort.guard` guards and an infantry squad of `escort.infantry`, which stay within `ai.tank.escort_leash` of it. Infantry fly in squads of `squad` (fewest, most), rapid ships in groups of up to `rapid_group`, and guards are shared out between the squads. MASSIVE WAVES: wave `massive.first` and every `massive.every`th after it has exactly the `ships` listed, released in `groups` parts `group_gap` seconds apart from different sides of the hangar, and the next wave waits `cooloff` seconds after it. The HUD warns from `warn` waves before.",
+    "first": 60,
+    "gap_start": 120,
+    "gap_step": 4,
+    "gap_min": 45,
+    "cooloff": 150,
+    "cap": 150,
+    "budget": {"base": 3, "per_wave": 0.9, "per_wave_sq": 0.09, "late_from": 30, "late_base": 110, "late_step": 3},
+    "threat": {"infantry": 1, "rapid": 1.5, "guard": 4, "tank": 30},
+    "unlock": {"guard": 3, "rapid": 4, "tank": 12},
+    "tank_every": 80,
+    "escort": {"guard": 2, "infantry": 4},
+    "squad": [4, 6],
+    "rapid_group": 4,
+    "massive": {"first": 30, "every": 10, "warn": 3, "name": "MASSIVE WAVE", "groups": 5, "group_gap": 15,
+                "ships": {"infantry": 150, "rapid": 36, "guard": 12, "tank": 2}},
+    "recipes": [
+      {"name": "SCOUTS",      "mix": {"infantry": 70, "rapid": 20, "guard": 10}, "formations": ["line"]},
+      {"name": "PATROL",      "mix": {"infantry": 60, "rapid": 10, "guard": 30}, "formations": ["wedge"]},
+      {"name": "SHIELD WALL", "mix": {"infantry": 45, "rapid": 5,  "guard": 50}, "formations": ["line", "arc"]},
+      {"name": "RAIDERS",     "mix": {"infantry": 40, "rapid": 50, "guard": 10}, "formations": ["arc", "line"]},
+      {"name": "TWO SQUADS",  "mix": {"infantry": 65, "rapid": 10, "guard": 25}, "formations": ["wedge", "arc"]},
+      {"name": "THE SWARM",   "mix": {"infantry": 55, "rapid": 20, "guard": 25}, "formations": ["wedge", "line", "arc"]},
+      {"name": "SIEGE",       "mix": {"infantry": 50, "rapid": 15, "guard": 35}, "formations": ["line", "wedge"],
+       "tanks": 1, "from": 12, "every": 6}
     ]
   },
   "drills": {

@@ -201,33 +201,20 @@ def test_squads_march_fast_a_long_way_then_slow_to_search():
 # ------------------------------------------------------------ waves
 
 
-def test_the_first_wave_comes_on_a_timer_and_the_next_only_when_few_are_left():
+def test_waves_come_on_a_timer_whether_or_not_the_last_one_is_beaten():
     st, battle, ms = hunt_stage(home=(2600.0, 2000.0))
     fleet = Fleet(battle, ms)
     events = tick(st, battle, FLEET["first"] - 0.5, fleet)
     assert fleet.number == 0 and not any(ev[0] == "wave" for ev in events)
     events = tick(st, battle, 1.0, fleet)
-    assert fleet.number == 1 and ("wave", 1, FLEET["list"][0]["name"]) in events
+    assert fleet.number == 1 and any(ev[:3] == ("wave", 1, FLEET["recipes"][0]["name"]) for ev in events)
     first = [e for e in st.enemies if e.alive and e.kind != "mothership"]
-    # A long time later, with all of them still out, there's still only one wave.
-    tick(st, battle, 60.0, fleet)
+    assert first and all(e.wave == 1 for e in first)
+    # The next leaves `gap_start` seconds later, with every ship of the first still out.
+    tick(st, battle, FLEET["gap_start"] - 1.5, fleet)
     assert fleet.number == 1
-    # Shoot them down to the few the rule allows, and the next comes `gap` seconds later.
-    for e in first[: len(first) - fleet.few_left]:
-        e.alive = False
-    tick(st, battle, FLEET["gap"] - 0.5, fleet)
-    assert fleet.number == 1
-    tick(st, battle, 1.0, fleet)
-    assert fleet.number == 2
-
-
-def test_a_small_wave_has_to_be_mostly_beaten_before_the_next():
-    st, battle, ms = hunt_stage()
-    fleet = Fleet(battle, ms)
-    fleet.last_size = 3
-    assert fleet.few_left == min(int(FLEET["few_left"]), int(3 * FLEET["few_left_share"]))
-    fleet.last_size = 40
-    assert fleet.few_left == int(FLEET["few_left"])
+    tick(st, battle, 1.5, fleet)
+    assert fleet.number == 2 and all(e.alive for e in first)
 
 
 def test_waves_leave_from_the_mothership_toward_where_they_think_you_are():

@@ -1,17 +1,23 @@
-Sprint 11: **pacing foundations** (sprint A of the scaling and pacing guide). Nothing new to buy this time: this build makes the game play the same on every monitor, and adds the balance simulator that the next sprints tune against.
+Sprint 12: **waves** (sprint B of the scaling and pacing guide). Waves come on a timer again, grow much faster, bring tanks, and every 10th wave from wave 30 is a massive one of 200 ships.
 
-**Download:** `BitMiner-PacingFoundations-windows.zip` below. Unzip it anywhere (Desktop or Downloads is fine), open the `BitMiner` folder and double-click `BitMiner.exe`.
+**Download:** `BitMiner-PacingWaves-windows.zip` below. Unzip it anywhere (Desktop or Downloads is fine), open the `BitMiner` folder and double-click `BitMiner.exe`.
 
 If Windows shows *"Windows protected your PC"*, click **More info**, then **Run anyway**. The game isn't signed with a publisher certificate yet, so Windows doesn't recognise it.
 
 **What changed in this build:**
-- **Towing is the same at any frame rate.** A big rock on the lasso used to refuse to move without boost, and how much boost it took depended on your monitor (level 2 at 144 Hz, impossible at 240 Hz). Now lasso level 3 tows the largest rock with no boost at all: slowly, about 7 seconds for the first 1,000 pixels. Boost only makes it quicker.
-- **Guns fire at the rate their data says.** The auto cannon is set to 11 shots a second but really fired 10 at 60 Hz (and other rates on other monitors). It now fires 11 everywhere, and sentries got the same fix.
-- **Upgrades can have any number of levels.** The station reads how many levels each upgrade has from `shop.json` (the pips and "LEVEL 1 OF 3" follow it), ready for the single-level drill upgrade.
-- **The self-test checks frame rates.** It plays the same towing and shooting scene at 60, 144 and 240 steps a second and fails if they differ by more than 2%.
-- **Balance simulator** (not in the game: a tool for tuning it). `python -m bitminer.sim --preset motivated --seeds 10` has a bot play ten whole one-hour games through the same controls you have, with no graphics, and prints a report: income each minute from ore and from kills, when each thing was bought, how much of each wave was killed, deaths, and whether the pacing guide's targets were met. Its shopping list, the three kinds of player and the pass marks are in `bitminer/data/sim.json`. Every build now runs it and puts the report on the build's summary page.
+- **Waves launch on a timer.** The first leaves the mothership at 1:00. The gap to the next starts at 120 seconds and shrinks by 4 seconds a wave down to 45 seconds (from wave 20), whether or not you beat the last one. The top of the screen counts down to the next launch ("NEXT 0:45"). A wave only waits if 150 or more enemies are already out.
+- **Waves grow on a curve.** Each wave has a threat budget (about 4 points at wave 1, 21 at wave 10, 57 at wave 20, 105 at wave 29) and spends it on ships: infantry 1 point, rapid assault 1.5, guard 4, tank 30. That is 4 ships in wave 1, about 15 in wave 10, about 43 in wave 20 and about 58 in wave 29 (the old list had 3, 8, 7 and 21). The six named waves (Scouts, Patrol, Shield Wall, Raiders, Two Squads, The Swarm) still take turns: each name now says how the budget is shared out. The alert for each wave says how many ships it has.
+- **Tanks.** A tank has 800 health (it had 300 and never appeared), flies slowly, stops 600 pixels from you and fires 4 homing missiles every 6 seconds. You can shoot the missiles down or outrun them. If the enemy has lost you, it shells your nearest drill, sentry or ring instead. Left alone for 5 seconds it mends itself very slowly (3 health a second). It never comes alone: 2 guards and an infantry squad stay between it and you. The first arrives with wave 12 (a new wave name, SIEGE, which returns every 6th wave), and from wave 25 every wave has one.
+- **Massive waves.** Wave 30, then 40, 50 and so on: 150 infantry, 36 rapid assault ships, 12 guards and 2 tanks. They leave in five groups of 40, 15 seconds apart, from different sides of the hangar. From three waves before, "MASSIVE WAVE IN 3" (then 2, then 1) blinks under the alerts. After a massive wave the next wave waits 150 seconds.
+- **Two new sliders** in the tuning panel (Tab): **WAVE GAP** multiplies the time between waves (0.5 sends them twice as fast) and **WAVE SIZE** multiplies how many ships each wave has, massive waves included.
+- **M skips ahead** (a testing shortcut, like = for credits): it moves the wave count to wave 26, so the next waves are 27, 28, 29 and then the massive one. Press **N** to send each next wave without waiting.
+- **200 ships at once runs faster.** The game's own work each frame with 165 enemies out dropped from about 13 ms to about 4 ms, so a massive wave should hold a higher frame rate than your 30 fps test.
+
+**Not changed yet (the next sprint, economy):** kill rewards, prices and what upgrade levels do. Waves are now far bigger than the rewards and weapons were tuned for, so expect to be overrun without test credits (press **=**). The mothership still doesn't fight back and home base can't be destroyed.
 
 **Menu:** Secure the Base is picked to start with. Use the mouse or the arrow keys and Enter. Esc goes back to the menu from anywhere.
+
+**From sprint 11, pacing foundations:** a big rock on the lasso tows the same on any monitor (lasso level 3 moves the largest rock with no boost, about 7 seconds for the first 1,000 pixels), and guns and sentries fire at exactly the rate their data says (the auto cannon a true 11 shots a second).
 
 **From sprint 10, the lasso and the collector ring:**
 - **Lasso** (Tools page, 3 levels: 500 / 700 / 900). Fly near an asteroid and brackets show the one you'd grab: bright if your lasso can tow it, grey (with the level you need) if it's too big. Level 1 tows small rocks, level 2 medium, level 3 the largest. Press **Q** to grab it: a steady cyan beam holds it at a fixed distance behind your ship, so it can never hit you. Big rocks are heavy and slow you down. Press **Q** again to let go: the rock keeps its speed. A rock moving fast trails pale speed lines, and while it has them it hurts any enemy it hits (more for heavier, faster rocks) and comes off the hit slower, so one throw usually takes out one or two. Kills with rocks pay credits like any other.
@@ -21,11 +27,9 @@ If Windows shows *"Windows protected your PC"*, click **More info**, then **Run 
 - **Drills aren't used up any more.** When a worked-out asteroid crumbles, its drills pop off and float away slowly, blinking cyan. Fly near one (within about 90 pixels) and it flies in to your ship and goes back in your hold, even if it was stuck under an asteroid. A cyan arrow at the screen edge points to each one.
 - **Two new sliders** in the tuning panel (Tab): **TOW WEIGHT** (how heavy a towed rock feels; lower tows big rocks more easily) and **THROW POWER** (how hard thrown rocks hit; 0 makes them harmless).
 
-**Keys in Secure the Base:** WASD fly, mouse aims, click fires, 1 to 4 pick the weapon, **Q** lasso (grab / let go), **T** collector ring (hold, then let go to place), **Shift** boost, **F** drill, **G** mines (hold), **R** sentry, **E** station, **=** test credits, N next wave, P pause, Backspace new game, Esc menu. Q and T aren't on the help line (it's full); the prompt at the bottom of the screen shows them when they apply.
+**Keys in Secure the Base:** WASD fly, mouse aims, click fires, 1 to 4 pick the weapon, **Q** lasso (grab / let go), **T** collector ring (hold, then let go to place), **Shift** boost, **F** drill, **G** mines (hold), **R** sentry, **E** station, **=** test credits, N next wave, M skip to the massive wave, P pause, Backspace new game, Esc menu. Q and T aren't on the help line (it's full); the prompt at the bottom of the screen shows them when they apply.
 
 **At the station:** 1, 2 and 3 pick the Ship, Weapons and Tools pages, W and S pick a row, A and D pick a sentry's tier, Enter buys, E or Esc closes it. The mouse works too.
-
-**Not yet:** the numbers themselves haven't changed: waves, prices and rewards are tuned in the next sprints, so the economy is still slow without test credits (press **=**). The mothership still doesn't fight back and home base can't be destroyed.
 
 **Everywhere:** Tab shows or hides the tuning panel, C toggles the CRT filter, F11 is full screen. Your tuning saves to `flight_tuning.json` next to `BitMiner.exe`. Each game is written to a `playdata` folder next to it, for the adaptive AI in a later sprint.
 

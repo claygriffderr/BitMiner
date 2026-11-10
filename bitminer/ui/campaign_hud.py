@@ -3,8 +3,9 @@
 - Lower right: the ship console (`campaign_console.py`): only the weapons you own, shield (NONE
   until you buy one), hull and armor, the drills you carry and your downs. Hidden while the
   station screen is open.
-- Top: kills and enemies out on the left; the wave and whether the enemy knows where you are
-  (HIDDEN or SPOTTED) in the middle, with no countdown; ore carried and credits on the right.
+- Top: kills and enemies out on the left; the wave, the time to the next launch and whether the
+  enemy knows where you are (HIDDEN or SPOTTED) in the middle; ore carried and credits on the right.
+  From three waves before a massive wave, "MASSIVE WAVE IN 3" (then 2, then 1) blinks under the alerts.
 - Alerts under the top bar: a wave on its way, being spotted or lost, drills set, hit, lost, floating
   free or picked up, sentries placed, mounted, hit or lost, asteroids crumbling, ore sold, the lasso
   and the collector ring, and things bought or upgraded.
@@ -28,10 +29,10 @@ from art import hud
 from ..combat.specs import DRILLS
 from ..graphics.textures import GameTextures, tex
 from .campaign_console import CampaignConsole
-from .combat_hud import ALERT_SHOW, ARROW_STEPS, VIEW_H, VIEW_W, CombatHud
+from .combat_hud import ALERT_SHOW, ARROW_STEPS, VIEW_H, VIEW_W, CombatHud, clock_text
 from .text import text_width
 
-# N (call the next wave) and Tab (tuning) still work; there's no room left on the line for them.
+# N (call the next wave), M (skip to the massive wave) and Tab (tuning) still work; there's no room left on the line for them.
 HELP = [("WASD", " FLY  "), ("CLICK", " FIRE  "), ("1-4", " WEAPON  "), ("SHIFT", " BOOST  "), ("F", " DRILL  "),
         ("G", " MINES  "), ("R", " SENTRY  "), ("E", " STATION  "), ("P", " PAUSE  "), ("ESC", " MENU")]
 ALERT_COLOR = {"drill_set": "ore_hi", "unload": "ore_hi", "crumble": "ore", "lost": "alien_green_hi",
@@ -84,6 +85,10 @@ class CampaignHud(CombatHud):
     def _build_top(self) -> None:
         super()._build_top()
         self.wave.set("")
+        self.state = self.text.label("", 0, VIEW_H - 6 - 11, "alien_green_hi")
+        # The massive wave warning, under the alert line.
+        self.massive = self.text.label("", VIEW_W // 2, VIEW_H - 44 - 11, "danger_pink_hi", "center",
+                                       shadow="console_black")
         # Ore and credits, top right.
         self._sprite(hud.panel(122, 15), "top_right", VIEW_W - 6 - 122, VIEW_H - 6 - 15)
         y = VIEW_H - 6 - 11
@@ -152,12 +157,23 @@ class CampaignHud(CombatHud):
         wave_txt = f"WAVE {fleet.number}" if fleet.number else "GET READY"
         known = game.hunt.known
         state_txt = "SPOTTED" if known else "HIDDEN"
-        mid_w = text_width(wave_txt) + text_width(state_txt) + 22
+        wait = fleet.next_in
+        next_txt = "NEXT HELD" if wait is None else f"NEXT {clock_text(wait)}"
+        mid_w = text_width(wave_txt) + text_width(next_txt) + text_width(state_txt) + 32
         self._plate("mid", mid_w, "top_mid", VIEW_H - 6 - 15)
         left = (VIEW_W - mid_w) // 2
         self.wave.set(wave_txt, x=left + 6)
-        self.next_wave.set(state_txt, color="danger_pink_hi" if known else "alien_green_hi",
-                           x=left + 16 + text_width(wave_txt))
+        self.next_wave.set(next_txt, color="hud_dim", x=left + 16 + text_width(wave_txt))
+        self.state.set(state_txt, color="danger_pink_hi" if known else "alien_green_hi",
+                       x=left + 26 + text_width(wave_txt) + text_width(next_txt))
+        warn = fleet.warning
+        if fleet.parts:
+            self.massive.set(f"MASSIVE WAVE: {len(fleet.parts)} MORE GROUPS TO COME")
+        elif warn is not None:
+            self.massive.set(f"MASSIVE WAVE IN {warn}")
+        else:
+            self.massive.set("")
+        self.massive.visible = int(st.time * 2) % 4 != 3
 
         self._drill_hit_t += dt
         for ev in st.events:
@@ -165,6 +181,10 @@ class CampaignHud(CombatHud):
             text = None
             if kind == "wave":
                 text = f"WAVE {ev[1]} ON ITS WAY: {ev[2]}"
+                if len(ev) > 3:
+                    text += f" ({ev[3]} SHIPS)"
+            elif kind == "wave_part":
+                text = f"MASSIVE WAVE: GROUP {ev[2]} OF {ev[3]} LAUNCHED"
             elif kind == "spotted":
                 text = "SPOTTED: THEY ALL KNOW WHERE YOU ARE"
             elif kind == "lost":

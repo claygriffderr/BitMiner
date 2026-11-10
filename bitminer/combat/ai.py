@@ -17,7 +17,7 @@ from ..flight import angle_to, forward_vector, right_vector, wrap_angle
 from . import shapes
 from .hunt import Task
 from .specs import AI, ENEMIES, ENEMY_WEAPONS, WAVES
-from .stage import ENEMY_GUN, SCOOP_REACH, Anim, Enemy, Lane, Stage, dist
+from .stage import ENEMY_GUN, SCOOP_REACH, TANK_PODS, Anim, Enemy, Lane, Stage, dist
 
 FORMATIONS = ("line", "wedge", "arc")
 
@@ -641,7 +641,71 @@ class RapidBrain(Brain):
         self.shot_in = 0.0
 
 
-BRAINS = {"infantry": InfantryBrain, "guard": GuardBrain, "rapid": RapidBrain}
+class TankBrain(Brain):
+    """A slow siege ship. It closes to `range` of you, then holds there and fires volleys of homing
+    missiles; while the enemy doesn't know where you are it does the same to the drill, sentry or
+    ring it raids. Left alone for a while it slowly mends itself."""
+
+    kind = "tank"
+
+    def __init__(self, battle: "Battle", e: Enemy):
+        super().__init__(battle, e)
+        self.spec = ENEMIES["tank"]
+        self.volley_in = battle.rng.uniform(0.3, 0.7) * float(self.cfg["volley_every"])
+        self.plan_in = 0.0
+        self.holding = False
+
+    def step(self, dt: float) -> None:
+        st = self.stage
+        e = self.e
+        cfg = self.cfg
+        mend = float(self.spec.get("repair", 0.0))
+        if mend > 0 and e.health < e.max_health and e.since_hit >= float(self.spec.get("repair_delay", 0.0)):
+            e.health = min(e.max_health, e.health + mend * dt)
+        target = None                 # what its missiles go for: "player" or one of your structures
+        if self.battle.knows:
+            tx, ty = st.ship.x, st.ship.y
+            engage = True
+            if st.ship_visible and not st.ship_down:
+                target = "player"
+        else:
+            tx, ty, kind = self.own_aim(dt)
+            engage = kind == "raid"
+            if engage:
+                target = self.task.drill
+        reach = float(cfg["range"])
+        ux, uy, d = unit(e.x - tx, e.y - ty)
+        self.plan_in -= dt
+        if self.plan_in <= 0:
+            self.plan_in = float(cfg["replan"])
+            self.holding = engage and d <= reach
+            if self.holding:
+                self.goal = None
+            elif engage:
+                self.goal = self.battle.free_point(tx + ux * reach * 0.9, ty + uy * reach * 0.9,
+                                                   e.body_r + AI["avoid"]["margin"])
+            else:
+                self.goal = (tx, ty)
+        self.fly(dt)
+        if self.holding:
+            self.face(tx, ty)
+        else:
+            self.face_travel()
+        self.volley_in -= dt
+        if self.volley_in > 0:
+            return
+        if target is None or d > reach * 1.1:
+            self.volley_in = 0.5
+            return
+        self.volley_in = float(cfg["volley_every"])
+        pairs = max(1, int(cfg["volley"]) // len(TANK_PODS))
+        for i in range(pairs):
+            st.later(i * float(cfg["volley_gap"]), lambda: e.targetable and st.tank_missiles(e, target))
+        st.later(float(cfg["reload_show"]), lambda: setattr(e, "pods_loaded", True))
+        st.events.append(("enemy_fire", "tank"))
+
+
+BRAINS = {"infantry": InfantryBrain, "guard": GuardBrain, "rapid": RapidBrain, "tank": TankBrain}
 
 
 # ---------------------------------------------------------------- squads
@@ -665,6 +729,7 @@ class Squad:
         self.aim: tuple[float, float, str] = (ship.x, ship.y, "hunt")
         self.mode = "hunt"
         self.cruising = False
+        self.escort: Enemy | None = None      # the tank this squad came with: it stays near it
         for m in self.members:
             m.brain.squad = self
 
@@ -725,11 +790,21 @@ class Squad:
         for m in self.members:
             m.brain.cruising = False
         R = cfg["standoff"] if kind == "hunt" else self.battle.hunt.spec["raid_standoff"]
-        if rng.random() < cfg.get("orbit_flip", 0.0):
-            self.turn = -self.turn
-        self.bearing = wrap_angle(self.bearing + self.turn * cfg["orbit"] * cfg["replan"])
+        tank = self.escort
+        if tank is not None and (not tank.alive or tank.dying >= 0):
+            tank = self.escort = None
+        if tank is not None:
+            # A tank's escort stays between it and what it is after, never far from the tank.
+            self.bearing = angle_to(tank.x - tx, tank.y - ty)
+            R = max(R, dist(tank.x, tank.y, tx, ty) - float(AI["tank"]["escort_leash"]))
+        else:
+            if rng.random() < cfg.get("orbit_flip", 0.0):
+                self.turn = -self.turn
+            self.bearing = wrap_angle(self.bearing + self.turn * cfg["orbit"] * cfg["replan"])
         # Keep clear of the other squads round the same target.
         for other in self.battle.squads:
+            if tank is not None:
+                break
             if other is self or not other.members or other.mode != kind:
                 continue
             if kind == "raid" and other.task.drill is not self.task.drill:
@@ -894,7 +969,9 @@ class Battle:
         if ahead <= 0:
             return ux, uy
         r = e.body_r + AI["avoid"]["margin"]
-        hit = st.rock_hit(e.x, e.y, e.x + ux * ahead, e.y + uy * ahead, r) if f is not None else None
+        # (No rock can be near a ship before its `rock_free`: the stage worked that out.)
+        near_rock = f is not None and st.time >= e.rock_free
+        hit = st.rock_hit(e.x, e.y, e.x + ux * ahead, e.y + uy * ahead, r) if near_rock else None
         if hit is None:
             wall = st.wall_ahead(e.x, e.y, ux, uy, ahead, r)
             if wall is None:

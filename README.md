@@ -22,15 +22,19 @@ Early development, built in short sprints with a playable or reviewable demo at 
 9. Lasso and collector ring art (design review)
 10. Lasso and collector ring
 11. Pacing foundations: frame-rate fixes and the balance simulator (pacing guide sprint A)
-12. The full loop (pacing guide sprints B to D: waves, economy, sentry handling)
-13. Adaptive AI
-14. Polish and share
+12. Waves: timer launches, threat budgets, tanks and massive waves (pacing guide sprint B)
+13. Economy (pacing guide sprint C)
+14. Sentry handling (pacing guide sprint D)
+15. The full loop: the mothership fights back, lives, winning and losing
+16. Adaptive AI
+17. Polish and share
 
 ## Play it
 
-Windows: download `BitMiner-PacingFoundations-windows.zip` from the
-[pacing-foundations release](https://github.com/claygriffderr/BitMiner/releases/tag/pacing-foundations), unzip it
+Windows: download `BitMiner-PacingWaves-windows.zip` from the
+[pacing-waves release](https://github.com/claygriffderr/BitMiner/releases/tag/pacing-waves), unzip it
 and run `BitMiner.exe`. Each push to a sprint branch rebuilds it. (Earlier sprints stay on the
+[pacing-foundations](https://github.com/claygriffderr/BitMiner/releases/tag/pacing-foundations),
 [lasso-and-ring](https://github.com/claygriffderr/BitMiner/releases/tag/lasso-and-ring),
 [upgrades-and-defenses](https://github.com/claygriffderr/BitMiner/releases/tag/upgrades-and-defenses),
 [drills-and-shop](https://github.com/claygriffderr/BitMiner/releases/tag/drills-and-shop),
@@ -73,8 +77,12 @@ goes back to it.
   on the spot, more for the dangerous ones, and = adds 1,000 test credits so every item can be
   tried. The laser charges for 2 seconds while you hold fire. Enemies only know where you
   are while one of them can see you: then they all do, and when they lose you they search where you
-  were last seen, then go home. They raid drills they come across. Each wave launches once only a
-  few of the last are still out. Dim arrows at the screen edge point at home base and each drill,
+  were last seen, then go home. They raid drills they come across. Waves launch on a timer that
+  shrinks from 120 to 45 seconds whether or not you beat the last one (the HUD counts down), each
+  built from a threat budget that grows with the wave number; tanks with escorts join at wave 12,
+  and wave 30 and every 10th after it is a massive wave of 200 ships that leaves in five groups (M
+  skips the wave count to just before it, for testing). The WAVE GAP and WAVE SIZE sliders scale
+  both. Dim arrows at the screen edge point at home base and each drill,
   with the drill's gold bar and health beside it.
 - Combat sandbox: wave after wave of infantry squads, guards and rapid assault ships in the asteroid
   field. WASD flies, the mouse aims, click fires, 1 to 4 (or the mouse wheel, Q and E) picks the
