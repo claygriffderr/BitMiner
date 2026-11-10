@@ -1,6 +1,6 @@
 """Build the Windows (or local) app folder and zip it: `python packaging/build.py`.
 
-Makes dist/BitMiner/ (BitMiner.exe plus its libraries) and dist/BitMiner-LassoAndRing-<platform>.zip.
+Makes dist/BitMiner/ (BitMiner.exe plus its libraries) and dist/BitMiner-PacingFoundations-<platform>.zip.
 Needs PyInstaller: `pip install pyinstaller`.
 """
 
@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 NAME = "BitMiner"
-ZIP_NAME = "BitMiner-LassoAndRing-{platform}.zip"
+ZIP_NAME = "BitMiner-PacingFoundations-{platform}.zip"
 
 
 def make_icon(path: Path) -> None:

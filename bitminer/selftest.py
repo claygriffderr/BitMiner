@@ -246,6 +246,18 @@ def run() -> int:
     for key, up in SHOP["upgrades"].items():
         assert game.gear.max_level(key) == len(up["prices"]) >= 1
 
+    # The balance simulator's bot can play, and its shopping list only names things that exist.
+    from .sim import load_spec
+    from .sim.bot import parse_item
+    from .sim.run import play
+    spec = load_spec()
+    known = set(SHOP["items"]) | set(SHOP["upgrades"]) | {"drill_yield"}
+    for items in spec["plan"].values():
+        for item in items:
+            assert parse_item(item)[0] in known, f"sim.json lists {item}, which nothing sells"
+    played = play(seed=1, minutes=0.5, spec=spec)
+    assert played["drills_out"] == 1, "the simulator's bot never set its drill"
+
     # Settings.
     with tempfile.TemporaryDirectory() as d:
         path = Path(d) / settings.FILE_NAME

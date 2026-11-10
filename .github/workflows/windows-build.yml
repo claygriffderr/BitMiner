@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RELEASE_TAG: lasso-and-ring
-  ZIP: dist/BitMiner-LassoAndRing-windows.zip
+  RELEASE_TAG: pacing-foundations
+  ZIP: dist/BitMiner-PacingFoundations-windows.zip
 
 jobs:
   windows:
@@ -75,7 +75,7 @@ jobs:
       - name: Keep the zip
         uses: actions/upload-artifact@v4
         with:
-          name: BitMiner-LassoAndRing-windows
+          name: BitMiner-PacingFoundations-windows
           path: ${{ env.ZIP }}
 
       - name: Publish the download
@@ -87,4 +87,37 @@ jobs:
           gh release delete $env:RELEASE_TAG --yes --cleanup-tag 2>$null
           $LASTEXITCODE = 0
           gh release create $env:RELEASE_TAG $env:ZIP --prerelease --target $env:GITHUB_SHA `
-            --title "BitMiner Lasso and Collector Ring (sprint 10)" --notes-file packaging/release_notes.md
+            --title "BitMiner Pacing Foundations (sprint 11)" --notes-file packaging/release_notes.md
+
+  # The balance simulator: a bot plays whole games with today's numbers and the report lands on
+  # this run's summary page. It's a report, not a gate: it never blocks a build or a release.
+  balance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install
+        run: python -m pip install -r requirements.txt
+
+      - name: Play the games
+        run: |
+          python -m bitminer.sim --preset motivated --seeds 4 --out balance_report.md --json balance_games.json
+          cat balance_report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: balance-report
+          path: |
+            balance_report.md
+            balance_games.json
+          if-no-files-found: ignore

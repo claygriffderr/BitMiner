@@ -60,7 +60,7 @@ class MenuView(arcade.View):
         logo.center_x = VIEW[0] / 2
         logo.center_y = 262
         self.sprites.append(logo)
-        self.text.label("SPRINT 10 BUILD: THE LASSO AND THE COLLECTOR RING", VIEW[0] // 2, 222, "hud_dim", "center",
+        self.text.label("SPRINT 11 BUILD: PACING FOUNDATIONS", VIEW[0] // 2, 222, "hud_dim", "center",
                         shadow="console_black")
 
         n = len(ITEMS)

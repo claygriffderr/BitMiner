@@ -21,15 +21,17 @@ Early development, built in short sprints with a playable or reviewable demo at 
 8. Upgrades, sentries and mines
 9. Lasso and collector ring art (design review)
 10. Lasso and collector ring
-11. The full loop
-12. Adaptive AI
-13. Polish and share
+11. Pacing foundations: frame-rate fixes and the balance simulator (pacing guide sprint A)
+12. The full loop (pacing guide sprints B to D: waves, economy, sentry handling)
+13. Adaptive AI
+14. Polish and share
 
 ## Play it
 
-Windows: download `BitMiner-LassoAndRing-windows.zip` from the
-[lasso-and-ring release](https://github.com/claygriffderr/BitMiner/releases/tag/lasso-and-ring), unzip it
+Windows: download `BitMiner-PacingFoundations-windows.zip` from the
+[pacing-foundations release](https://github.com/claygriffderr/BitMiner/releases/tag/pacing-foundations), unzip it
 and run `BitMiner.exe`. Each push to a sprint branch rebuilds it. (Earlier sprints stay on the
+[lasso-and-ring](https://github.com/claygriffderr/BitMiner/releases/tag/lasso-and-ring),
 [upgrades-and-defenses](https://github.com/claygriffderr/BitMiner/releases/tag/upgrades-and-defenses),
 [drills-and-shop](https://github.com/claygriffderr/BitMiner/releases/tag/drills-and-shop),
 [secure-the-base](https://github.com/claygriffderr/BitMiner/releases/tag/secure-the-base),
@@ -108,6 +110,9 @@ with pixel-perfect integer scaling.
   (`hunt.py`), your weapons (`arsenal.py`), the station shop (`shop.py`), the upgrades you own and
   the boost meter (`gear.py`), mines and sentries (`defenses.py`), and the sandbox and
   Secure the Base without graphics (`sandbox.py`, `campaign.py`)
+- `bitminer/sim/`: the balance simulator: a bot that plays whole games through the player's controls
+  (`bot.py`), what one game measures (`run.py`) and the report with its pass marks (`report.py`);
+  its shopping list, player presets and pass marks are in `bitminer/data/sim.json`
 - `bitminer/playdata.py`: the play log
 - `bitminer/gallery/`: the weapon gallery's scenes and the director that plays them
 - `bitminer/views/`: the menu, Secure the Base, flight test, combat sandbox and gallery screens
@@ -118,6 +123,7 @@ with pixel-perfect integer scaling.
 pip install -r requirements-dev.txt
 python -m pytest                         # unit tests (BITMINER_GL_TESTS=1 also drives the window)
 python -m bitminer --selftest            # quick check with no window
+python -m bitminer.sim --preset motivated --seeds 10   # balance report: a bot plays 10 one-hour games
 python packaging/build.py                # BitMiner.exe and its zip, in dist/
 python packaging/render_check.py dist/BitMiner shots --no-mesa   # run the built game, print what it drew
 python -m bitminer --record gifs/ --size 1280x720                 # a GIF of every gallery scene
