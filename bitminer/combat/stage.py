@@ -119,6 +119,7 @@ class Shot:
     pad: float = 0.5
     hit: set = field(default_factory=set)
     clock: float = 0.0
+    lead: float = 0.0            # seconds it was due before the frame it left on: flown on its first step
 
     @property
     def heading(self) -> float:
@@ -465,7 +466,7 @@ class Stage:
 
     # ------------------------------------------------------------ your weapons
 
-    def fire_auto(self, heading: float | None = None) -> None:
+    def fire_auto(self, heading: float | None = None, lead: float = 0.0) -> None:
         w = WEAPONS["auto"]
         ship = self.ship
         h = ship.angle if heading is None else heading
@@ -476,12 +477,12 @@ class Stage:
         fx, fy = forward_vector(a)
         speed = w["speed"]
         self.shots.append(Shot("player", "auto", x, y, fx * speed + ship.vx, fy * speed + ship.vy,
-                               w["damage"] * self.damage_mult["auto"], w["range"] / speed))
+                               w["damage"] * self.damage_mult["auto"], w["range"] / speed, lead=lead))
         self.anims.append(Anim("muzzle", ("auto",), 2, 30, x, y, ship.angle,
                                follow=self._ship_follow(right, fwd)))
         self.events.append(("fire", "auto"))
 
-    def fire_sniper(self, heading: float | None = None) -> None:
+    def fire_sniper(self, heading: float | None = None, lead: float = 0.0) -> None:
         w = WEAPONS["sniper"]
         ship = self.ship
         h = ship.angle if heading is None else heading
@@ -489,7 +490,7 @@ class Stage:
         fx, fy = forward_vector(h)
         speed = w["speed"]
         self.shots.append(Shot("player", "sniper", x, y, fx * speed, fy * speed, w["damage"] * self.damage_mult["sniper"],
-                               w["range"] / speed, pierce=self.sniper_pierce, pad=1.0))
+                               w["range"] / speed, pierce=self.sniper_pierce, pad=1.0, lead=lead))
         self.anims.append(Anim("muzzle", ("sniper",), 2, 20, x, y, ship.angle,
                                follow=self._ship_follow(*NOSE)))
         # Recoil: a small shove backwards, and a puff off the nose.
@@ -534,7 +535,7 @@ class Stage:
         self.events.append(("fire", "missile"))
         return True
 
-    def sentry_shot(self, kind: str, x: float, y: float, heading: float, spec: dict) -> None:
+    def sentry_shot(self, kind: str, x: float, y: float, heading: float, spec: dict, lead: float = 0.0) -> None:
         """A sentry's round: `kind` is auto or sniper, fired from (x, y) toward `heading`."""
         speed = float(spec["speed"])
         a = heading + (self.rng.gauss(0, spec["spread"]) if spec.get("spread") else 0.0)
@@ -542,7 +543,7 @@ class Stage:
         sniper = kind == "sniper"
         self.shots.append(Shot("player", "sentry_" + kind, x, y, fx * speed, fy * speed, float(spec["damage"]),
                                float(spec["range"]) * 1.15 / speed, pierce=int(spec.get("pierce", 1)),
-                               pad=1.0 if sniper else 0.5))
+                               pad=1.0 if sniper else 0.5, lead=lead))
         self.anims.append(Anim("muzzle", ("sniper" if sniper else "auto",), 2, 30 if not sniper else 20, x, y, heading))
         if sniper:
             self.sparks.burst("ion_spark", x, y, math.radians(90 - heading), 0.5, 4, (20, 60), (0.08, 0.2))
@@ -1194,7 +1195,12 @@ class Stage:
 
     def _step_shots(self, dt: float) -> None:
         keep = []
+        frame = dt
         for s in self.shots:
+            # A shot that was due part-way through the last frame flies that bit further on its
+            # first step, so shots stay evenly spaced whatever the frame rate.
+            dt = frame + s.lead
+            s.lead = 0.0
             s.clock += dt
             x0, y0 = s.x, s.y
             s.x += s.vx * dt

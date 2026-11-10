@@ -27,7 +27,8 @@ class Row:
     kind: str                     # icon kind (see hud.item_icon)
     name: str
     price: int | None             # next price; None when there's nothing left to buy
-    level: int | None = None      # upgrades: levels owned (0 to 3)
+    level: int | None = None      # upgrades: levels owned (0 to `levels`)
+    levels: int = 3               # upgrades: how many levels there are
     sub: str | None = None        # items: a short line under the name, e.g. "2/5 CARRIED"
     owned: bool = True            # weapons you haven't bought yet show their price only
     tag: str | None = None        # shown instead of the price, e.g. SOON or FREE
@@ -96,9 +97,10 @@ def _row(row: Row, credits: int, selected: bool) -> Image.Image:
     img.alpha_composite(_socket(21, hud.item_icon(row.kind)), (2, 2))
     _text(img, row.name, 28, 4, "hud_text" if row.owned or selected else "hud_dim")
     if row.level is not None:
-        img.alpha_composite(hud.level_pips(row.level, 3, size=4, gap=2), (28, 15))
-        lv = "MAX" if row.level >= 3 else f"LV {row.level}"
-        _text(img, lv, 50, 14, "hud_dim")
+        pips = hud.level_pips(row.level, row.levels, size=4, gap=2)
+        img.alpha_composite(pips, (28, 15))
+        lv = "MAX" if row.level >= row.levels else f"LV {row.level}"
+        _text(img, lv, 28 + pips.width + 6, 14, "hud_dim")
     elif row.sub:
         _text(img, row.sub, 28, 14, "hud_dim")
     if row.tag is not None:
@@ -136,7 +138,7 @@ def _stat_bar(now: float, nxt: float, w: int = 48) -> tuple[Image.Image, Image.I
 
 def detail_pane(det: Detail, credits: int, blink: bool = True, w: int = 190, h: int = 230,
                 spots: dict | None = None) -> Image.Image:
-    """The right-hand pane for the selected row: what it is, its 3 levels as steps, what the next
+    """The right-hand pane for the selected row: what it is, its levels as steps, what the next
     level changes, and the buy button. `spots` gets the button's box (x, y, w, h)."""
     img = hud.panel(w, h, "console_black", 240)
     y = 6

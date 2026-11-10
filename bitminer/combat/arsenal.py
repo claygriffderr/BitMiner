@@ -18,6 +18,7 @@ from .specs import WEAPONS
 from .stage import Enemy, Stage, dist
 
 ORDER = ["auto", "sniper", "missile", "laser"]
+GUNS = ("auto", "sniper")          # these fire at a steady `fire_rate` while you hold fire
 CANCEL_TIME = 0.4        # seconds the energy takes to scatter after you let go of a charge
 
 
@@ -78,7 +79,7 @@ class Arsenal:
             return 1.0
         if w == "sniper":
             period = 1.0 / WEAPONS["sniper"]["fire_rate"]
-            return 1.0 - min(1.0, self.cooldown / period) if self.weapon == "sniper" else 1.0
+            return 1.0 - min(1.0, max(0.0, self.cooldown) / period) if self.weapon == "sniper" else 1.0
         if w == "missile":
             salvo = int(WEAPONS["missile"]["salvo"])
             if st.missile_reload > 0:
@@ -95,7 +96,14 @@ class Arsenal:
 
     def step(self, dt: float, trigger: bool, cursor: tuple[float, float] | None = None) -> None:
         st = self.stage
-        self.cooldown = max(0.0, self.cooldown - dt)
+        # While a gun is firing, the wait for the next shot may run past zero part-way through a
+        # frame: that overshoot is kept and taken off the next wait, so the gun fires at exactly its
+        # `fire_rate` at any frame rate (and more than once in a long frame, if it has to).
+        firing = trigger and not st.ship_down and not self.charging and self.weapon in GUNS and self.weapon in self.owned
+        waiting = self.cooldown > 0
+        self.cooldown -= dt
+        if not (firing and waiting):
+            self.cooldown = max(0.0, self.cooldown)      # time spent ready but not firing isn't saved up
         st.charge_cancel = max(0.0, st.charge_cancel - dt / CANCEL_TIME)
         if self.charges < self.laser_max and "laser" in self.owned:
             self.recharge += dt
@@ -133,13 +141,11 @@ class Arsenal:
                 self.charges -= 1
             self._fire_laser(burst=False)
             return
-        if self.cooldown > 0:
-            return
-        if self.weapon == "auto":
-            st.fire_auto()
-        else:
-            st.fire_sniper()
-        self.cooldown = 1.0 / WEAPONS[self.weapon]["fire_rate"]
+        period = 1.0 / float(WEAPONS[self.weapon]["fire_rate"])
+        fire = st.fire_auto if self.weapon == "auto" else st.fire_sniper
+        while self.cooldown <= 0:
+            fire(lead=min(dt, -self.cooldown))
+            self.cooldown += period
 
     def _step_charge(self, dt: float, trigger: bool) -> None:
         st = self.stage

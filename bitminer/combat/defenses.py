@@ -202,7 +202,12 @@ class Defenses:
     def _step_sentry(self, s: Sentry, dt: float) -> None:
         st = self.stage
         spec = sentry_spec(s.gun)
-        s.cool = max(0.0, s.cool - dt)
+        # Like your own guns: while it is firing, the wait for the next shot carries its overshoot
+        # over, so it fires at its set rate at any frame rate.
+        waiting = s.cool > 0
+        s.cool -= dt
+        if not waiting:
+            s.cool = max(0.0, s.cool)        # time spent ready with nothing to shoot isn't saved up
         s.look -= dt
         s.fired += dt
         t = s.target
@@ -212,6 +217,7 @@ class Defenses:
             s.target = t = self._pick(s, spec)
             s.look = RETARGET
         if t is None:
+            s.cool = max(0.0, s.cool)
             return
         # Lead the target by its speed (missiles steer themselves).
         tx, ty = t.x, t.y
@@ -224,8 +230,12 @@ class Defenses:
         diff = wrap_angle(want - s.angle)
         turn = float(spec["turn_rate"]) * dt
         s.angle = wrap_angle(s.angle + max(-turn, min(turn, diff)))
-        if abs(wrap_angle(want - s.angle)) > float(spec["aim_cone"]) or s.cool > 0:
+        if abs(wrap_angle(want - s.angle)) > float(spec["aim_cone"]):
+            s.cool = max(0.0, s.cool)
             return
+        if s.cool > 0:
+            return
+        late = min(dt, -s.cool)
         fx, fy = forward_vector(s.angle)
         mx, my = s.x + fx * TURRET_REACH, s.y + fy * TURRET_REACH
         if s.gun == "missile":
@@ -235,10 +245,10 @@ class Defenses:
             st.sentry_missile(mx, my, s.angle + side * 40, t, spec)
             s.salvo -= 1
             s.loaded = s.salvo
-            s.cool = float(spec["gap"]) if s.salvo > 0 else float(spec["reload"])
+            s.cool += float(spec["gap"]) if s.salvo > 0 else float(spec["reload"])
         else:
-            st.sentry_shot(s.gun, mx, my, s.angle, spec)
-            s.cool = 1.0 / float(spec["fire_rate"])
+            st.sentry_shot(s.gun, mx, my, s.angle, spec, lead=late)
+            s.cool += 1.0 / float(spec["fire_rate"])
         s.fired = 0.0
 
     def _step_sentries(self, dt: float) -> None:

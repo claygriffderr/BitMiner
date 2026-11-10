@@ -197,6 +197,7 @@ class Haul:
             st.events.append(("lasso", "heavy", self.level_for(int(f.size[i])) or 3, int(f.size[i])))
             return
         self.rock = i
+        f.held.add(i)
         self.latch = 0.0
         ax, ay = self.tail()
         rx, ry = self.rock_pos(i)
@@ -214,6 +215,7 @@ class Haul:
         self.rock = -1
         st = self.stage
         f = st.field
+        f.held.discard(i)
         if f.gone[i]:
             return
         speed = math.hypot(float(f.vx[i]), float(f.vy[i]))

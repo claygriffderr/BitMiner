@@ -106,7 +106,7 @@ def _row(game, o) -> ST.Row:
     key = o.key
     name = NAMES[key]
     if o.upgrade:
-        return ST.Row(key, name, o.price, level=o.level)
+        return ST.Row(key, name, o.price, level=o.level, levels=game.gear.max_level(key))
     if o.soon:
         return ST.Row(key, name, None, sub="NEXT SPRINT", owned=False, tag="SOON")
     if key == "repair":
@@ -146,9 +146,10 @@ def _ring_state(game) -> str:
 
 def _steps(o, values: list[str], prices: list[int], art=None) -> list[ST.Step]:
     out = []
-    for i in range(3):
+    for i in range(len(prices)):         # one card for each level the data file gives it
         state = "owned" if i < o.level else ("next" if i == o.level else "locked")
-        out.append(ST.Step(f"LV{i + 1}", values[i], int(prices[i]), state, art=None if art is None else art[i]))
+        out.append(ST.Step(f"LV{i + 1}", values[i] if i < len(values) else "", int(prices[i]), state,
+                           art=None if art is None or i >= len(art) else art[i]))
     return out
 
 
@@ -175,8 +176,9 @@ def _upgrade_detail(game, o) -> ST.Detail:
     lv = o.level
     up = SHOP["upgrades"][key]
     prices = up["prices"]
-    nxt = min(lv, 2)                       # the level the next purchase gives, as an index
-    sub = f"LEVEL {lv} OF 3" if lv else "NOT UPGRADED YET"
+    top = len(prices)
+    nxt = min(lv, top - 1)                 # the level the next purchase gives, as an index
+    sub = f"LEVEL {lv} OF {top}" if lv else "NOT UPGRADED YET"
     stats, bars, art = [], [], None
     if key == "shield":
         strength = up["strength"]
@@ -191,7 +193,7 @@ def _upgrade_detail(game, o) -> ST.Detail:
     elif key == "armor":
         block = up["block"]
         values = [_pct(float(b)) for b in block[1:]]
-        stats = [("BLOCKS", _pct(float(block[lv])), _pct(float(block[min(lv + 1, 3)])))]
+        stats = [("BLOCKS", _pct(float(block[lv])), _pct(float(block[min(lv + 1, len(block) - 1)])))]
         if not lv:
             sub = "STARTING ARMOR"
     elif key == "boost":
@@ -204,7 +206,7 @@ def _upgrade_detail(game, o) -> ST.Detail:
     elif key == "lasso":
         values = list(LEVEL_WORDS["lasso"])
         art = [_rock_art(d) for d in LASSO_ROCKS]
-        stats = [("TOWS", values[lv - 1] if lv else "-", values[nxt])]
+        stats = [("TOWS", values[lv - 1] if lv else "-", values[min(nxt, len(values) - 1)])]
         if not lv:
             sub = "NOT OWNED YET"
     else:
@@ -219,7 +221,7 @@ def _upgrade_detail(game, o) -> ST.Detail:
     about = ABOUT["sniper_up" if key == "sniper" else key]
     lines = about if isinstance(about, list) else [about]
     if o.blocked == "MAX":
-        return ST.Detail(NAMES[key], "LEVEL 3 OF 3", lines, _steps(o, values, prices, art), buy="FULLY UPGRADED",
+        return ST.Detail(NAMES[key], f"LEVEL {top} OF {top}", lines, _steps(o, values, prices, art), buy="FULLY UPGRADED",
                          price=None)
     return ST.Detail(NAMES[key], sub, lines, _steps(o, values, prices, art), stats=stats, bars=bars,
                      buy=f"BUY LV{lv + 1}", price=o.price)
