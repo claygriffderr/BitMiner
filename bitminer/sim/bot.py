@@ -82,6 +82,9 @@ class Bot:
         self.escape = 0.0
         self.escape_dir = (0.0, 0.0)
         self.dt = 1 / 30
+        self.grab_dir: tuple[float, float] | None = None      # the side it comes at a rock from, once
+        self.grab_try = 0                                     # the first side didn't let it lasso that rock
+        self.grab_t = 0.0
         self.tow_slot = -1                # the ring spot the rock on the lasso is headed for
         self.lined = False                # past the gate, flying down that spot's diagonal
         self.time_in: dict[str, float] = {}
@@ -143,6 +146,7 @@ class Bot:
             self.job = job
             self.job_t = 0.0
             self.keying = -1.0
+            self.grab_dir, self.grab_try, self.grab_t = None, 0, 0.0
 
     def rest(self) -> None:
         """A job is done: waste a little time, as people do."""
@@ -791,8 +795,21 @@ class Bot:
                 return
             ux, uy = ship.x - rx, ship.y - ry
             n = math.hypot(ux, uy) or 1.0
-            self._go(act, (rx + ux / n * (r + 28.0), ry + uy / n * (r + 28.0)), 8.0, ignore=(i,))
+            if self.grab_dir is not None:
+                ux, uy, n = self.grab_dir[0], self.grab_dir[1], 1.0
+            left = self._go(act, (rx + ux / n * (r + 28.0), ry + uy / n * (r + 28.0)), 8.0, ignore=(i,))
             self.tow_slot = -1
+            if left <= 10.0 and ship.speed < 30:
+                # In place, but Q would take some nearer rock: come at this one from another side.
+                self.grab_t += self.dt
+                if self.grab_t > 1.0:
+                    self.grab_t = 0.0
+                    self.grab_try += 1
+                    if self.grab_try > 5:
+                        self.give_up(i)
+                        return
+                    a = math.atan2(uy / n, ux / n) + math.radians(70.0)
+                    self.grab_dir = (math.cos(a), math.sin(a))
             return
         # Towing it home: to a gate out along a free spot's diagonal, then straight down the
         # diagonal, so the rock swings in behind and arrives lined up with its spot.
