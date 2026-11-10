@@ -24,13 +24,14 @@ import random
 from dataclasses import dataclass, field
 
 from ..combat.campaign import Campaign
-from ..combat.haul import FIELD_R, INNER, NODE_DIRS
+from ..combat.haul import FIELD_R, INNER, NODE_DIRS, OUTER
 from ..combat.specs import DRILLS, SHOP, WEAPONS
 from ..combat.stage import dist
 from ..flight import Controls, angle_to, wrap_angle
 
 
 TOW_GATE = 330.0          # how far out from the ring a towed rock is lined up with its spot
+RING_STAND = OUTER + 70.0  # where it stands to defend the ring: outside it, clear of its rocks
 
 
 @dataclass
@@ -168,7 +169,13 @@ class Bot:
             if ev[0] == "struct_hit" and ev[1] in ("drill", "sentry", "ring"):
                 for t in st.structures:
                     if t.uid == ev[2] and t.alive:
-                        self.alarm = (t.x, t.y, g.time + float(self.h["alarm"]))
+                        x, y = t.x, t.y
+                        if ev[1] == "ring":
+                            # Not into the ring (nothing can be shot from in there): to its near side.
+                            ox, oy = st.ship.x - x, st.ship.y - y
+                            n = math.hypot(ox, oy) or 1.0
+                            x, y = x + ox / n * RING_STAND, y + oy / n * RING_STAND
+                        self.alarm = (x, y, g.time + float(self.h["alarm"]))
         act = Act()
         if st.ship_down:
             self.set_job("idle")
@@ -306,10 +313,25 @@ class Bot:
         near, far = self.p["keep"]
         strafe = int(g.time / 2.2) % 2 == 0
         act.controls = Controls(forward=d > far, back=d < near, left=strafe, right=not strafe, aim=aim)
+        ring = self.ring()
+        if ring is not None:
+            ox, oy = ship.x - ring.x, ship.y - ring.y
+            if math.hypot(ox, oy) < RING_STAND - 30.0:
+                # Inside the ring its rocks block every shot: get out through the nearest gap first.
+                gx, gy = max(((1, 0), (-1, 0), (0, 1), (0, -1)), key=lambda v: v[0] * ox + v[1] * oy)
+                act.controls = self._push(aim, gx, gy)
         act.trigger = abs(wrap_angle(aim - ship.angle)) < 10 and d < float(WEAPONS[weapon]["range"]) * 0.95
         act.cursor = (foe.x, foe.y)
         act.lay_mines = g.defenses.mines_carried > 0 and d < 200
         self.think = 0.0
+
+    @staticmethod
+    def _push(aim: float, x: float, y: float) -> Controls:
+        """The thrusters that push the ship along (x, y) while its nose stays on `aim`."""
+        a = math.radians(aim)
+        fwd = x * math.sin(a) + y * math.cos(a)
+        side = x * math.cos(a) - y * math.sin(a)
+        return Controls(forward=fwd > 0.3, back=fwd < -0.3, right=side > 0.3, left=side < -0.3, aim=aim)
 
     # ------------------------------------------------------------ shopping
 
@@ -462,24 +484,38 @@ class Bot:
                 return min(held, key=lambda i: (self.drills_on(i), -self.ore_left(i)))
             if -1 in ring.slots and g.haul.level > 0 and self._tow_rock() is not None:
                 return None               # wait for a rock in the ring instead
-        reach = float(self.h["mine_range"])
-        idx, dx, dy = f.near(g.base.x, g.base.y, reach, reach)
-        best, score = None, 0.0
-        for i, a, b in zip(idx.tolist(), dx, dy):
-            if self.left_alone(i):
-                continue
-            ore = self.ore_left(i)
-            if ore <= 1.0:
-                continue
-            n = self.drills_on(i)
-            each = ore / (n + 1)
-            if each < 40.0:
-                continue                  # not worth one more drill
-            away = math.hypot(a, b)
-            s = min(ore, 1000.0) * (1.5 if n else 1.0) / (away + 300.0)
-            if s > score:
-                best, score = i, s
-        return best
+        for reach in self._reaches("mine_range"):
+            idx, dx, dy = f.near(g.base.x, g.base.y, reach, reach)
+            best, score = None, 0.0
+            for i, a, b in zip(idx.tolist(), dx, dy):
+                if self.left_alone(i):
+                    continue
+                ore = self.ore_left(i)
+                if ore <= 1.0:
+                    continue
+                n = self.drills_on(i)
+                each = ore / (n + 1)
+                if each < 40.0:
+                    continue              # not worth one more drill
+                away = math.hypot(a, b)
+                s = min(ore, 1000.0) * (1.5 if n else 1.0) / (away + 300.0)
+                if s > score:
+                    best, score = i, s
+            if best is not None:
+                return best
+        return None
+
+    def _reaches(self, key: str):
+        """How far to look: `key` first, then wider and wider (by `range_grow`) up to `range_max`,
+        for when the ore near home has been worked out."""
+        reach = float(self.h[key])
+        most = max(reach, float(self.h["range_max"]))
+        while True:
+            yield reach
+            grow = float(self.h["range_grow"])
+            if reach >= most or reach <= 0 or grow <= 1.0:
+                return
+            reach = min(most, reach * grow)
 
     def _junk(self) -> int | None:
         """A rock the ring caught that is no use there (no ore, or too small for a drill) and its
@@ -505,19 +541,21 @@ class Bot:
         if ring is None:
             return None
         most = g.haul.max_size(g.haul.level)
-        reach = float(self.h["tow_range"])
-        idx, dx, dy = f.near(ring.x, ring.y, reach, reach)
-        best, score = None, 0.0
-        for i, a, b in zip(idx.tolist(), dx, dy):
-            if f.size[i] > most or i in ring.slots or self.left_alone(i):
-                continue
-            ore = self.ore_left(i)
-            if ore < 150.0:
-                continue
-            s = (ore + 300.0 * self.drills_on(i)) / (math.hypot(a, b) + 500.0)
-            if s > score:
-                best, score = i, s
-        return best
+        for reach in self._reaches("tow_range"):
+            idx, dx, dy = f.near(ring.x, ring.y, reach, reach)
+            best, score = None, 0.0
+            for i, a, b in zip(idx.tolist(), dx, dy):
+                if f.size[i] > most or i in ring.slots or self.left_alone(i):
+                    continue
+                ore = self.ore_left(i)
+                if ore < 150.0:
+                    continue
+                s = (ore + 300.0 * self.drills_on(i)) / (math.hypot(a, b) + 500.0)
+                if s > score:
+                    best, score = i, s
+            if best is not None:
+                return best
+        return None
 
     # ------------------------------------------------------------ the jobs
 
@@ -525,7 +563,7 @@ class Bot:
         """Nothing to do: wait by the ring, or by home base."""
         ring = self.ring()
         g = self.game
-        want = (ring.x, ring.y + 190.0) if ring is not None else (g.base.x + 60.0, g.base.y - 60.0)
+        want = (ring.x, ring.y + RING_STAND) if ring is not None else (g.base.x + 60.0, g.base.y - 60.0)
         self._go(act, want, 25.0)
 
     def _do_drop(self, act: Act) -> None:
@@ -534,7 +572,7 @@ class Bot:
 
     def _do_defend(self, act: Act) -> None:
         _, x, y = self.job
-        if self._go(act, (x, y), 150.0) <= 150.0:
+        if self._go(act, (x, y), 120.0) <= 120.0:
             self.alarm = None
             self.set_job("idle")
 

@@ -8,7 +8,10 @@ pacing marks worked out from those.
 
 from __future__ import annotations
 
+import multiprocessing
+import os
 import time as clock
+from concurrent.futures import ProcessPoolExecutor
 
 from ..combat.campaign import Campaign
 from ..selftest import Quiet
@@ -172,3 +175,29 @@ def marks(result: dict, done_at: dict, spec: dict) -> dict:
         "deaths": len(deaths),
         "earned": sum(result["mining"]) + sum(result["combat"]),
     }
+
+
+def _one(job: tuple) -> dict:
+    seed, preset, minutes = job
+    return play(seed=seed, preset=preset, minutes=minutes)
+
+
+def run_batch(seeds: list[int], preset: str, minutes: float | None, jobs: int | None = None, note=None) -> list[dict]:
+    """Play one game per seed, several at a time (`jobs`, or one per processor). `note` is called
+    with each game as it comes in, in seed order."""
+    work = [(seed, preset, minutes) for seed in seeds]
+    jobs = max(1, min(len(work), jobs or os.cpu_count() or 1))
+    games = []
+    if jobs == 1:
+        for job in work:
+            games.append(_one(job))
+            if note:
+                note(games[-1])
+        return games
+    # Fresh processes (as Windows starts them anyway), so every platform plays the same way.
+    with ProcessPoolExecutor(max_workers=jobs, mp_context=multiprocessing.get_context("spawn")) as pool:
+        for game in pool.map(_one, work):
+            games.append(game)
+            if note:
+                note(game)
+    return games

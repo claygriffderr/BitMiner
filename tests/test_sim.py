@@ -2,18 +2,22 @@
 the same controls you have, and a report judges the pacing marks in `data/sim.json`."""
 
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
 from bitminer.combat.campaign import Campaign
 from bitminer.combat.specs import SHOP
+from bitminer.combat.stage import dist
 from bitminer.selftest import Quiet
 from bitminer.settings import Tuning
 from bitminer.sim import load_spec
-from bitminer.sim.__main__ import main, parse, run_batch
-from bitminer.sim.bot import Act, Bot, parse_item
+from bitminer.sim.__main__ import main, parse
+from bitminer.sim.bot import RING_STAND, Act, Bot, parse_item
 from bitminer.sim.report import judge, render, summarise
-from bitminer.sim.run import crossover, marks, play
+from bitminer.sim.run import crossover, marks, play, run_batch
 
 SPEC = load_spec()
 RATE = 30
@@ -162,6 +166,36 @@ def test_the_bot_pulls_a_useless_rock_out_of_the_ring():
     assert bot.time_in.get("clear", 0) > 0
 
 
+def test_the_bot_looks_further_out_once_the_ore_near_home_is_gone():
+    game, bot = scene()
+    bot.h = {**bot.h, "mine_range": 60, "range_grow": 2.0, "range_max": 4000}
+    assert list(bot._reaches("mine_range")) == [60, 120, 240, 480, 960, 1920, 3840, 4000]
+    far = bot._drill_rock()
+    assert far is not None and bot.ore_left(far) > 0
+    bot.h = {**bot.h, "range_max": 60}
+    assert list(bot._reaches("mine_range")) == [60]
+    assert bot._drill_rock() is None              # nothing that near, and it may not look further
+    bot.h = {**bot.h, "mine_range": 0}
+    assert list(bot._reaches("mine_range")) == [0]
+
+
+def test_the_bot_leaves_the_ring_to_fight():
+    game, bot = scene(buy=["ring"])
+    run(game, bot, 12)
+    ring = game.haul.ring
+    assert game.haul.has_ring()
+    ship = game.stage.ship
+    ship.x, ship.y, ship.vx, ship.vy = ring.x, ring.y, 0.0, 0.0
+    game.stage.recentre()
+    ring = game.haul.ring
+    foe = game.stage.spawn("guard", ring.x + 330.0, ring.y + 40.0, warp=False)
+    foe.immune = True
+    run(game, bot, 4)
+    ring = game.haul.ring
+    assert dist(ship.x, ship.y, ring.x, ring.y) > RING_STAND - 40.0      # out of the ring, clear of its rocks
+    assert bot.time_in.get("fight", 0) > 3
+
+
 def test_the_bot_fights_what_comes_at_it():
     game, bot = scene()
     game.fleet.call_now()
@@ -253,3 +287,11 @@ def test_the_command_prints_the_report_and_writes_the_files(tmp_path, capsys):
 def test_games_can_be_played_side_by_side():
     games = run_batch([1, 2], "motivated", 0.5, jobs=2)
     assert [g["seed"] for g in games] == [1, 2]
+
+
+def test_the_command_itself_runs_games_side_by_side(tmp_path):
+    """Run the way the build runs it: as a program, with worker processes started fresh."""
+    done = subprocess.run([sys.executable, "-m", "bitminer.sim", "--seeds", "2", "--minutes", "0.5", "--jobs", "2"],
+                          capture_output=True, text=True, timeout=300, cwd=Path(__file__).resolve().parent.parent)
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert "## Pass marks" in done.stdout and "seeds 1, 2" in done.stdout

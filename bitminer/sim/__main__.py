@@ -7,15 +7,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import multiprocessing
-import os
 import sys
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from . import load_spec
 from .report import render, summarise
-from .run import play
+from .run import play, run_batch
 
 
 def parse(argv=None) -> argparse.Namespace:
@@ -30,31 +27,6 @@ def parse(argv=None) -> argparse.Namespace:
     p.add_argument("--json", help="also write every game's numbers to this file")
     p.add_argument("--trace", action="store_true", help="play one game and list what the bot did, job by job")
     return p.parse_args(argv)
-
-
-def _one(job: tuple) -> dict:
-    seed, preset, minutes = job
-    return play(seed=seed, preset=preset, minutes=minutes)
-
-
-def run_batch(seeds: list[int], preset: str, minutes: float | None, jobs: int | None = None, note=None) -> list[dict]:
-    """Play one game per seed, several at a time."""
-    work = [(seed, preset, minutes) for seed in seeds]
-    jobs = max(1, min(len(work), jobs or os.cpu_count() or 1))
-    games = []
-    if jobs == 1:
-        for job in work:
-            games.append(_one(job))
-            if note:
-                note(games[-1])
-        return games
-    # Fresh processes (as Windows starts them anyway), so every platform plays the same way.
-    with ProcessPoolExecutor(max_workers=jobs, mp_context=multiprocessing.get_context("spawn")) as pool:
-        for game in pool.map(_one, work):
-            games.append(game)
-            if note:
-                note(game)
-    return games
 
 
 def main(argv=None) -> int:
