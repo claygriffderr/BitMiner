@@ -38,6 +38,10 @@ class Tuning:
     camera_aim: float = _start("camera_aim")      # In a fight, how far the view leans toward the mouse.
     shake: float = _start("shake")                # Screen shake strength on impacts.
     map_size: float = _start("map_size")          # Secure the Base map, times the sandbox each way. Used on a new game.
+    tow_weight: float = _start("tow_weight")      # How heavy a rock on the lasso feels, as a share of its real weight.
+    throw_power: float = _start("throw_power")    # Multiplies the damage a thrown rock does.
+    wave_gap: float = _start("wave_gap")          # Multiplies the time between Secure the Base waves.
+    wave_size: float = _start("wave_size")        # Multiplies how many ships each wave has.
 
     def clamped(self) -> "Tuning":
         values = {}

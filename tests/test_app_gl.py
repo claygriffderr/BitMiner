@@ -259,6 +259,32 @@ def test_secure_the_base_sets_drills_calls_waves_and_points_home(make_window, tm
     assert any(line["type"] == "sample" and "credits" in line for line in lines)
 
 
+def test_the_hud_counts_down_to_waves_and_warns_of_the_massive_one(make_window):
+    import arcade
+    win = make_window("campaign")
+    view = win.views["campaign"]
+    game = view.sb
+    frames(win, 3)
+    assert view.hud.wave.text == "GET READY" and view.hud.next_wave.text == "NEXT 1:00"
+    assert view.hud.massive.text == ""
+    send(win, "on_key_press", arcade.key.M, 0)             # the testing shortcut
+    frames(win, 2)
+    assert game.fleet.number == 26 and "MASSIVE" in view.hud.alert.text
+    send(win, "on_key_press", arcade.key.N, 0)
+    frames(win, 2)
+    assert view.hud.wave.text == "WAVE 27" and view.hud.next_wave.text == "NEXT 0:45"
+    assert view.hud.massive.text == "MASSIVE WAVE IN 3"
+    assert "SHIPS" in view.hud.alert.text
+    game.fleet.launched = 29
+    send(win, "on_key_press", arcade.key.N, 0)
+    frames(win, 2)
+    assert view.hud.wave.text == "WAVE 30" and view.hud.massive.text.startswith("MASSIVE WAVE: 4 MORE GROUPS")
+    assert view.hud.next_wave.text == "NEXT 2:30"          # the cool-off
+    assert [row.spec.key for row in win.panel.rows][-2:] == ["wave_gap", "wave_size"]
+    assert win.panel.bottom >= 12                          # the panel still clears the help line
+    view.shutdown()
+
+
 def test_e_at_the_station_opens_the_shop_and_enter_buys(make_window):
     import arcade
     win = make_window("campaign")

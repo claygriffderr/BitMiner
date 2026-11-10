@@ -5,7 +5,8 @@ for a pile, keep flying for a line). A mine arms after a moment, and goes off on
 flies right over it: every enemy in its blast takes damage that falls off evenly from the middle
 to the edge. Your mines never hurt you, your drills or your sentries.
 
-Sentries: press R to place the next sentry you carry where your ship is. It never moves, turns
+Sentries: press R to place the next sentry you carry where your ship is (inside your collector ring,
+R mounts it on the ring instead: see `haul.py`). It never moves, turns
 its turret toward the nearest enemy it can see in range and fires its own shots (diamond pellets,
 ring-headed sniper rounds or darker missiles). Enemies can damage and destroy it.
 
@@ -100,8 +101,12 @@ class Defenses:
             if m.state == "laid" and m.age >= float(MINES["arm_time"]):
                 m.state = "armed"
             elif m.state == "armed":
+                wide = reach + 60.0          # further than any hull that could set it off
                 for e in st.enemies:
-                    if e.targetable and e.kind != "mothership" and dist(e.x, e.y, m.x, m.y) <= e.body_r * 0.6 + reach:
+                    dx, dy = e.x - m.x, e.y - m.y
+                    if dx > wide or dx < -wide or dy > wide or dy < -wide:
+                        continue
+                    if e.targetable and e.kind != "mothership" and math.hypot(dx, dy) <= e.body_r * 0.6 + reach:
                         m.state = "triggered"
                         m.fuse = float(MINES["fuse"])
                         m.clock = 0.0
@@ -143,7 +148,7 @@ class Defenses:
         st = self.stage
         clear = float(SENTRIES["clearance"])
         r = float(SENTRIES["radius"])
-        if len(self.sentries) >= int(SENTRIES["max_out"]):
+        if sum(1 for s in self.sentries if s.host is None) >= int(SENTRIES["max_out"]):
             return "MAX"
         f = st.field
         if f is not None and len(f):
@@ -153,6 +158,11 @@ class Defenses:
                     return "ROCK"
         for t in st.structures:
             if not t.alive:
+                continue
+            if t.hoop > 0:
+                # The collector ring: only its band (and the mounts on it) is in the way.
+                if abs(dist(x, y, t.x, t.y) - t.radius) < t.hoop + r + clear:
+                    return "CROWDED"
                 continue
             gap = t.radius + r + clear if t.kind != "drill" else r + clear
             if dist(x, y, t.x, t.y) < gap:
@@ -182,10 +192,12 @@ class Defenses:
         st = self.stage
         reach = float(spec["range"])
         best, bd = None, math.inf
+        wide = reach + 80.0                  # the mothership's hull counts from its edge
         for e in st.enemies:
-            if not e.targetable:
+            dx, dy = e.x - s.x, e.y - s.y
+            if dx > wide or dx < -wide or dy > wide or dy < -wide or not e.targetable:
                 continue
-            d = dist(s.x, s.y, e.x, e.y)
+            d = math.hypot(dx, dy)
             if d > reach + (e.body_r if e.kind == "mothership" else 0.0) or d >= bd:
                 continue
             if st.rock_hit(s.x, s.y, e.x, e.y) is not None:
@@ -196,16 +208,24 @@ class Defenses:
     def _step_sentry(self, s: Sentry, dt: float) -> None:
         st = self.stage
         spec = sentry_spec(s.gun)
-        s.cool = max(0.0, s.cool - dt)
+        # Like your own guns: while it is firing, the wait for the next shot carries its overshoot
+        # over, so it fires at its set rate at any frame rate.
+        waiting = s.cool > 0
+        s.cool -= dt
+        if not waiting:
+            s.cool = max(0.0, s.cool)        # time spent ready with nothing to shoot isn't saved up
         s.look -= dt
         s.fired += dt
         t = s.target
         reach = float(spec["range"])
-        lost = t is None or not t.targetable or dist(s.x, s.y, t.x, t.y) > reach * 1.1
+        # A target that dies or gets away is replaced at once; with nothing to shoot it looks
+        # round every RETARGET seconds, not every step.
+        lost = t is not None and (not t.targetable or dist(s.x, s.y, t.x, t.y) > reach * 1.1)
         if lost or s.look <= 0:
             s.target = t = self._pick(s, spec)
             s.look = RETARGET
         if t is None:
+            s.cool = max(0.0, s.cool)
             return
         # Lead the target by its speed (missiles steer themselves).
         tx, ty = t.x, t.y
@@ -218,8 +238,12 @@ class Defenses:
         diff = wrap_angle(want - s.angle)
         turn = float(spec["turn_rate"]) * dt
         s.angle = wrap_angle(s.angle + max(-turn, min(turn, diff)))
-        if abs(wrap_angle(want - s.angle)) > float(spec["aim_cone"]) or s.cool > 0:
+        if abs(wrap_angle(want - s.angle)) > float(spec["aim_cone"]):
+            s.cool = max(0.0, s.cool)
             return
+        if s.cool > 0:
+            return
+        late = min(dt, -s.cool)
         fx, fy = forward_vector(s.angle)
         mx, my = s.x + fx * TURRET_REACH, s.y + fy * TURRET_REACH
         if s.gun == "missile":
@@ -229,10 +253,10 @@ class Defenses:
             st.sentry_missile(mx, my, s.angle + side * 40, t, spec)
             s.salvo -= 1
             s.loaded = s.salvo
-            s.cool = float(spec["gap"]) if s.salvo > 0 else float(spec["reload"])
+            s.cool += float(spec["gap"]) if s.salvo > 0 else float(spec["reload"])
         else:
-            st.sentry_shot(s.gun, mx, my, s.angle, spec)
-            s.cool = 1.0 / float(spec["fire_rate"])
+            st.sentry_shot(s.gun, mx, my, s.angle, spec, lead=late)
+            s.cool += 1.0 / float(spec["fire_rate"])
         s.fired = 0.0
 
     def _step_sentries(self, dt: float) -> None:

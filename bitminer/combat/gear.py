@@ -1,7 +1,9 @@
-"""Your ship's upgrades in Secure the Base: shield, armor, boost, and auto cannon and sniper power.
+"""Your ship's upgrades in Secure the Base: shield, armor, boost, auto cannon and sniper power, and
+the lasso (how big an asteroid it tows: see `haul.py`).
 
-Each has 3 levels, bought in order at the station (`shop.py`). This module holds the levels you
-own, puts them into effect on the stage, and runs the boost meter. Every number comes from the
+Each has levels bought in order at the station (`shop.py`): as many as its `prices` list in
+`data/shop.json` is long (3 today, but an upgrade can have just one). This module holds the levels
+you own, puts them into effect on the stage, and runs the boost meter. Every number comes from the
 `upgrades` block of `data/shop.json`. No graphics.
 """
 
@@ -12,12 +14,16 @@ from dataclasses import replace
 from ..settings import Tuning
 from .specs import SHOP
 
-UPGRADES = ("shield", "armor", "boost", "auto", "sniper")
-MAX_LEVEL = 3
+UPGRADES = tuple(SHOP["upgrades"])       # shield, armor, boost, auto, sniper, lasso, ...
 
 
 def spec(key: str) -> dict:
     return SHOP["upgrades"][key]
+
+
+def max_level(key: str) -> int:
+    """How many levels an upgrade has: one for each price in its `prices` list."""
+    return len(spec(key)["prices"])
 
 
 class Gear:
@@ -33,12 +39,15 @@ class Gear:
         return self.levels[key]
 
     def next_price(self, key: str) -> int | None:
-        """What the next level costs, or None at level 3."""
+        """What the next level costs, or None at its top level."""
         lv = self.levels[key]
-        return None if lv >= MAX_LEVEL else int(spec(key)["prices"][lv])
+        return None if lv >= max_level(key) else int(spec(key)["prices"][lv])
+
+    def max_level(self, key: str) -> int:
+        return max_level(key)
 
     def raise_level(self, key: str) -> None:
-        self.levels[key] = min(MAX_LEVEL, self.levels[key] + 1)
+        self.levels[key] = min(max_level(key), self.levels[key] + 1)
         self.apply()
         if key == "shield":
             self.stage.shield = self.stage.shield_max      # a new shield comes fully charged

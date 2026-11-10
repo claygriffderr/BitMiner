@@ -12,6 +12,69 @@ import tempfile
 from pathlib import Path
 
 
+RATES = (60, 144, 240)      # steps a second the frame-rate check runs its scene at
+RATE_SLACK = 0.02           # how far apart the results may be, as a share
+
+
+class Quiet:
+    """Stands in for the spark and smoke systems when nothing is drawn."""
+
+    def burst(self, *a, **k):
+        pass
+
+    def emit(self, *a, **k):
+        pass
+
+
+def frame_rate_scene(hz: int, seconds: float = 6.0) -> dict:
+    """One scripted scene at `hz` steps a second: tow the biggest asteroid from rest with no boost
+    while holding fire, with an auto sentry shooting a target that never dies. Returns how far the
+    ship got and how many shots your gun and the sentry fired."""
+    from . import settings
+    from .combat.campaign import Campaign
+    from .field import SIZES, AsteroidField
+    from .flight import Controls
+
+    game = Campaign(Quiet(), Quiet(), settings.Tuning(), scale=3)
+    st = game.stage
+    field = AsteroidField(game.world.width, game.world.height)
+    game.world.field = st.field = field
+    game.fleet.timer = 1e9
+    game.gear.levels["lasso"] = game.gear.max_level("lasso")
+    ship = st.ship
+    ship.x, ship.y, ship.angle = 3000.0, 3000.0, 0.0
+    size = max(SIZES)
+    field.add(ship.x, ship.y - 46 - size / 2, size, 0, True)
+    dt = 1.0 / hz
+    still = Controls(aim=0.0)
+    game.defenses.carried.append(("auto", 1))
+    game.step(dt, still, False, None, place_sentry=True)
+    target = st.spawn("guard", ship.x + 150, ship.y, warp=False)
+    target.immune = True
+    game.step(dt, still, False, None, lasso=True)
+    assert game.haul.rock == 0, "the lasso did not take the asteroid"
+    start = ship.uy
+    shots = sentry = 0
+    for _ in range(round(seconds * hz)):
+        events = game.step(dt, Controls(forward=True, aim=0.0), True, None)
+        shots += events.count(("fire", "auto"))
+        sentry += events.count(("fire", "sentry_auto"))
+    return {"tow": ship.uy - start, "shots": shots, "sentry_shots": sentry}
+
+
+def frame_rate_check(rates=RATES, seconds: float = 6.0) -> dict:
+    """Run the scene at each rate and fail if towing distance or shots fired differ by more than
+    2%: the game must play the same on a 60 Hz and a 240 Hz monitor. Returns the results by rate."""
+    results = {hz: frame_rate_scene(hz, seconds) for hz in rates}
+    for key in ("tow", "shots", "sentry_shots"):
+        values = [r[key] for r in results.values()]
+        low, high = min(values), max(values)
+        assert low > 0, f"frame-rate check: no {key} at one of {rates} steps a second: {results}"
+        assert (high - low) <= RATE_SLACK * high + (1.0 if key != "tow" else 0.0), \
+            f"frame-rate check: {key} differs by more than {RATE_SLACK:.0%} between {rates} steps a second: {results}"
+    return results
+
+
 def run() -> int:
     from art import pixfont, sprites as S
 
@@ -61,13 +124,6 @@ def run() -> int:
     assert E.shield_bubble(14).size == (31, 31)
     assert S.explosion(2, "enemy", 33, 1).size == (33, 33)
 
-    class Quiet:
-        def burst(self, *a, **k):
-            pass
-
-        def emit(self, *a, **k):
-            pass
-
     for key in ("missile-tank", "guard_ram-shield_breaks", "mothership_laser-armor"):
         stage = Stage(Quiet(), Quiet())
         director = Director(stage, settings.Tuning(), (1600.0, 1000.0))
@@ -101,6 +157,7 @@ def run() -> int:
 
     game = Campaign(Quiet(), Quiet(), settings.Tuning())
     assert len(game.world.field) > 5000, "the big map came out nearly empty"
+    game.fleet.timer = min(game.fleet.timer, 30.0)       # the first wave comes at 60 s: bring it inside this run
     opened = False
     with tempfile.TemporaryDirectory() as d:
         log = PlayLog(Path(d), {"mode": "selftest-campaign"})
@@ -181,6 +238,46 @@ def run() -> int:
         if fired:
             break
     assert fired, "the sentry never fired"
+
+    # The game plays the same at any frame rate: towing and fire rates (pacing guide, sprint A).
+    frame_rate_check()
+
+    # Sprint 12 (pacing guide, sprint B): the wave timer shrinks, wave 30 is the massive one and
+    # leaves in parts, and a tank that knows where you are fires its volley.
+    from .combat.specs import AI, FLEET
+    game = Campaign(Quiet(), Quiet(), settings.Tuning())
+    fleet = game.fleet
+    assert fleet.gap_after(1) > fleet.gap_after(25) == FLEET["gap_min"], "the wave timer doesn't shrink"
+    assert sum(fleet.counts(30).values()) == sum(FLEET["massive"]["ships"].values()), "wave 30 isn't massive"
+    assert len(fleet.compose(30)[1]) == FLEET["massive"]["groups"]
+    assert fleet.counts(FLEET["unlock"]["tank"])["tank"] == 1, "no tank in the first siege"
+    st = game.stage
+    fleet.timer = 1e9
+    tank = game.battle.add_group("tank", 1, st.ship.x + AI["tank"]["range"] - 60, st.ship.y, warp=False)[0]
+    game.hunt.known, game.hunt.since_seen = True, 0.0
+    volley = 0
+    for _ in range(60 * 8):
+        game.hunt.reveal()
+        game.step(1 / 60, Controls(aim=0.0), False, None)
+        volley = max(volley, sum(1 for m in st.missiles if m.owner == "enemy"))
+    assert volley == AI["tank"]["volley"], f"the tank fired {volley} missiles, not a volley"
+
+    # Upgrades have as many levels as their price list is long, and the station shows them.
+    from .combat.specs import SHOP
+    for key, up in SHOP["upgrades"].items():
+        assert game.gear.max_level(key) == len(up["prices"]) >= 1
+
+    # The balance simulator's bot can play, and its shopping list only names things that exist.
+    from .sim import load_spec
+    from .sim.bot import parse_item
+    from .sim.run import play
+    spec = load_spec()
+    known = set(SHOP["items"]) | set(SHOP["upgrades"]) | {"drill_yield"}
+    for items in spec["plan"].values():
+        for item in items:
+            assert parse_item(item)[0] in known, f"sim.json lists {item}, which nothing sells"
+    played = play(seed=1, minutes=0.5, spec=spec)
+    assert played["drills_out"] == 1, "the simulator's bot never set its drill"
 
     # Settings.
     with tempfile.TemporaryDirectory() as d:

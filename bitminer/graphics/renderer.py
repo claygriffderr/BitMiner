@@ -257,7 +257,8 @@ class Renderer:
     def _sync_rocks(self) -> None:
         self._sync_wear()
         f = self.field
-        moved = np.nonzero(~((f.x == self._rx) & (f.y == self._ry)))[0]
+        # A rock that crumbled this frame has already left its tile, even if it moved on the way.
+        moved = np.nonzero(~((f.x == self._rx) & (f.y == self._ry)) & ~f.gone)[0]
         if not len(moved):
             return
         k = self.k

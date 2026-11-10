@@ -17,6 +17,7 @@ import math
 import arcade
 
 from art import effects as E
+from art import haul as HL
 from art import items as I
 from art import sprites as S
 from art.palette import rgba
@@ -38,6 +39,12 @@ DRILL_STEPS = 8          # its gold bar fills in this many steps
 DRILL_BAR_UP = 14        # the health bar sits this far above the drill's centre
 TURRET_STEPS = 32        # a sentry turret's picture turns in this many steps
 SENTRY_BAR_UP = 13       # its health bar sits this far above its centre
+RING_FRAMES = 6          # the collector ring's running lights chase round in this many pictures
+RING_FPS = 2
+RING_HEALTH_STEPS = 7    # its battle damage shows in this many steps
+RING_BAR = 64            # width of its health bar, which sits over its top mount
+RING_BAR_UP = HL.PAD_R + HL.PAD_HALF + 8
+PULSE_TONES = ("ore_hi", "ore", "ore", "ore_dark", "ore_dark")
 # How white a full hit flash turns each hull. Big hulls flash less, or steady fire would bleach them.
 FLASH = {"tank": 0.6, "mothership": 0.2}
 
@@ -57,6 +64,11 @@ class Art:
             hit = (tex(img, name), tex(glow, name + "_l") if glow is not None else None)
             self._tex[key] = hit
         return hit
+
+    def drop(self, keep) -> None:
+        """Let go of cached pictures whose key fails `keep(key)` (big ones no longer shown)."""
+        for key in [k for k in self._tex if not keep(k)]:
+            del self._tex[key]
 
     def plain(self, key: tuple, build) -> arcade.Texture:
         """A texture without a light twin (white silhouettes for the hit flash)."""
@@ -151,6 +163,7 @@ class StageDrawer:
         self._crumbles: dict[int, list] = {}     # pictures of asteroids crumbling right now
         self._crumble_n = 0
         self._charges: dict[tuple, tuple] = {}   # the laser charge-up, built as it's first needed
+        self._ring_key = None                    # (ring, damage step) the ring's pictures are kept for
 
     # ------------------------------------------------------------ placing sprites
 
@@ -170,7 +183,7 @@ class StageDrawer:
                 ly = snap_light(y, h) if straight else y
                 self.light.add(glow, lx, ly, angle, la)
 
-    def _line(self, pool: Pool, x0, y0, x1, y1, color: str, alpha: float, glow: float) -> None:
+    def _line(self, pool: Pool, x0, y0, x1, y1, color: str, alpha: float, glow: float, width: float = 1.0) -> None:
         dx, dy = x1 - x0, y1 - y0
         length = math.hypot(dx, dy)
         if length < 0.5:
@@ -178,9 +191,17 @@ class StageDrawer:
         angle = -math.degrees(math.atan2(dy, dx))
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
         c = rgba(color)
-        pool.add(self.pixel, cx, cy, angle, alpha, c[:3], (length, 1.0))
+        pool.add(self.pixel, cx, cy, angle, alpha, c[:3], (length, width))
         if glow > 0:
-            self.light.add(self.pixel, cx, cy, angle, alpha, tuple(int(v * glow) for v in c[:3]), (length, 1.0))
+            self.light.add(self.pixel, cx, cy, angle, alpha, tuple(int(v * glow) for v in c[:3]), (length, width))
+
+    def _dot(self, pool: Pool, x: float, y: float, color: str, size: float = 1.0, glow: float = 0.0,
+             alpha: float = 1.0) -> None:
+        c = rgba(color)[:3]
+        px, py = math.floor(x) + 0.5 * size, math.floor(y) + 0.5 * size
+        pool.add(self.pixel, px, py, 0.0, alpha, c, (size, size))
+        if glow > 0:
+            self.light.add(self.pixel, px, py, 0.0, alpha, tuple(int(v * glow) for v in c), (size, size))
 
     # ------------------------------------------------------------ the frame
 
@@ -210,6 +231,11 @@ class StageDrawer:
                 pair = A.get(("mslane", L, frame, lane.locked), lambda: S.laser_warning(L, frame, lane.locked))
                 self._put(self.under, pair, cx, cy, lane.heading + 180)
 
+        # The lasso's beam, the ring's field, thrown rocks and loose drills, under the structures.
+        haul = getattr(stage, "haul", None)
+        if haul is not None:
+            self._haul_under(stage, haul, t)
+
         # Your base and mine rigs, on the ground under everything that flies.
         for st_ in stage.structures:
             if not st_.alive:
@@ -221,6 +247,8 @@ class StageDrawer:
                 self._drill(st_)
             elif st_.kind == "sentry":
                 self._sentry(st_)
+            elif st_.kind == "ring":
+                self._ring(st_)
 
         # Your mines.
         for m in stage.mines:
@@ -381,6 +409,8 @@ class StageDrawer:
             fade = min(1.0, (BAR_SHOW - e.since_hit) / 0.4)
             self._put(self.over, pair, e.x, e.y + top, alpha=fade)
 
+        if haul is not None:
+            self._haul_over(stage, haul, t)
         self._charge(stage)
         live = {id(a) for a in stage.anims if a.name == "crumble"}
         for key in [k for k in self._crumbles if k not in live]:
@@ -413,12 +443,15 @@ class StageDrawer:
         self._put(self.over, bar, d.x, d.y + DRILL_BAR_UP, light_alpha=0.3)
 
     def _sentry(self, s) -> None:
-        """A sentry: its platform, the turret turned toward its target, and its health bar."""
+        """A sentry: its platform, the turret turned toward its target, and its health bar. A sentry
+        mounted on the collector ring is just its turret: the ring is its platform and its health."""
         A = self.art
+        mounted = s.host is not None
         frame = int(s.clock * 2) % 2
         base_key = ("sbase", s.tier, frame)
         base_build = lambda t=s.tier, f=frame: I.sentry_base(t, f)
-        self._put(self.under, A.get(base_key, base_build), s.x, s.y)
+        if not mounted:
+            self._put(self.under, A.get(base_key, base_build), s.x, s.y)
         step = int(round(s.angle / 360 * TURRET_STEPS)) % TURRET_STEPS
         firing = s.fired < 0.08
         loaded = s.loaded if s.gun == "missile" else 4
@@ -427,13 +460,145 @@ class StageDrawer:
             S._finish(I.turret_interior(g, f, n), I.OUTLINE, a)
         self._put(self.under, A.get(key, build), s.x, s.y)
         if s.flash > 0.02:
-            self.under.add(A.plain(base_key + ("flash",), lambda b=base_build: silhouette(b())), s.x, s.y, 0.0,
-                           s.flash * 0.8)
+            if not mounted:
+                self.under.add(A.plain(base_key + ("flash",), lambda b=base_build: silhouette(b())), s.x, s.y, 0.0,
+                               s.flash * 0.8)
             self.under.add(A.plain(key + ("flash",), lambda b=build: silhouette(b())), s.x, s.y, 0.0, s.flash * 0.8)
+        if mounted:
+            return
         w = I.SENTRY_HEALTH_BAR[s.tier]
         hk = int(round(s.health / max(1.0, s.max_health) * (w - 2)))
         bar = A.get(("sbar", w, hk), lambda w=w, hk=hk: I.struct_bar(w, hk / (w - 2)))
         self._put(self.over, bar, s.x, s.y + SENTRY_BAR_UP, light_alpha=0.3)
+
+    # ------------------------------------------------------------ hauling: the lasso and the ring
+
+    def _ring(self, ring) -> None:
+        """The collector ring: its hoop with the running lights, battle damage as it wears down,
+        collector nodes that light gold as drills sell, gold flying in, and its health bar."""
+        A = self.art
+        frame = int(ring.clock * RING_FPS) % RING_FRAMES
+        hstep = int(math.ceil(ring.health / max(1.0, ring.max_health) * RING_HEALTH_STEPS - 1e-6))
+        key = ("ringb", ring.uid, hstep, frame)
+        if self._ring_key != (ring.uid, hstep):
+            # Only the pictures for how hurt it is now are kept: each is a big texture.
+            self._ring_key = (ring.uid, hstep)
+            A.drop(lambda k: k[0] != "ringb" or k[1:3] == (ring.uid, hstep))
+        build = lambda f=frame, h=hstep / RING_HEALTH_STEPS, u=ring.uid: HL.collector_ring(f, h, (), seed=u % 7 + 3)
+        self._put(self.under, A.get(key, build), ring.x, ring.y)
+        for n, lit in enumerate(ring.lit):
+            if lit > 0:
+                nx, ny = ring.node_point(n)
+                self._dot(self.under, nx - 1, ny - 1, "ore_hi", 3.0, 1.0, min(1.0, lit * 3))
+        for dx, dy, n, tt, _ in ring.pulses:
+            x0, y0 = ring.x + dx, ring.y + dy
+            x1, y1 = ring.node_point(n)
+            mx, my = (x0 + x1) / 2, (y0 + y1) / 2 + 10        # a slight arc, so it reads as flying
+            for j, tone in enumerate(PULSE_TONES):
+                u = tt - j * 0.04
+                if 0 <= u <= 1:
+                    x = (1 - u) ** 2 * x0 + 2 * (1 - u) * u * mx + u ** 2 * x1
+                    y = (1 - u) ** 2 * y0 + 2 * (1 - u) * u * my + u ** 2 * y1
+                    self._dot(self.over, x, y, tone, 1.0, 1.0 if j == 0 else 0.6)
+        health = ring.health / max(1.0, ring.max_health)
+        hk = int(round(health * (RING_BAR - 2)))
+        bar = A.get(("rbar", hk), lambda: I.struct_bar(RING_BAR, hk / (RING_BAR - 2)))
+        self._put(self.over, bar, ring.x, ring.y + RING_BAR_UP, light_alpha=0.3)
+
+    def _haul_under(self, stage, haul, t: float) -> None:
+        A = self.art
+        f = stage.field
+        ring = haul.ring if haul.has_ring() else None
+        if ring is not None:
+            frame = int(t * 6) % 8
+            self._put(self.under, A.get(("ringf", frame), lambda fr=frame: HL.ring_field(fr)), ring.x, ring.y,
+                      light_alpha=0.6)
+            hold_f = int(t * 8) % 15
+            for i in ring.slots:
+                if i < 0 or f.gone[i]:
+                    continue
+                size = int(f.size[i])
+                x, y = haul.rock_pos(i)
+                self._put(self.under, A.get(("rhold", size, hold_f), lambda s=size, fr=hold_f: HL.rock_hold(s, fr)),
+                          x, y, light_alpha=0.5)
+        # Speed lines behind asteroids fast enough to hurt.
+        for i, strength in haul.fast_rocks():
+            x, y = haul.rock_pos(i)
+            vx, vy = float(f.vx[i]), float(f.vy[i])
+            sp = math.hypot(vx, vy)
+            ux, uy = vx / sp, vy / sp
+            nx, ny = -uy, ux
+            rad = float(f.size[i]) / 2
+            length = 6 + 14 * strength
+            for off, tone in ((-0.55, "rock_rim"), (0.0, "star_mid"), (0.55, "rock_rim")):
+                sx = x - ux * (rad + 1) + nx * off * rad
+                sy = y - uy * (rad + 1) + ny * off * rad
+                ln = length * (1.0 if off == 0 else 0.7)
+                self._line(self.under, sx, sy, sx - ux * ln, sy - uy * ln, tone, 0.9, 0.0)
+        # The tow beam and the grip round the rock it holds.
+        if haul.rock >= 0 and not f.gone[haul.rock] and stage.ship_visible:
+            i = haul.rock
+            size = int(f.size[i])
+            x0, y0 = haul.tail()
+            rx, ry = haul.rock_pos(i)
+            d = math.hypot(rx - x0, ry - y0)
+            if d > size / 2 + 1:
+                ux, uy = (rx - x0) / d, (ry - y0) / d
+                x1, y1 = rx - ux * (size / 2 + 1), ry - uy * (size / 2 + 1)
+                self._beam(x0, y0, x1, y1, max(1, haul.level), t)
+            closing = round(haul.latch * 4) / 4
+            gf = int(t * 12) % 6
+            pair = A.get(("grip", size, closing, gf), lambda s=size, fr=gf, c=closing: HL.grip(s, fr, c))
+            self._put(self.under, pair, rx, ry, light_alpha=0.8)
+        # The ring's outline while you hold T: cyan where it fits, pink where it doesn't.
+        if haul.placing and stage.ship_visible:
+            frame = int(t * 10) % 8
+            ok = not haul.room
+            pair = A.get(("ghost", ok, frame), lambda o=ok, fr=frame: HL.placement_ghost(o, fr))
+            self._put(self.under, pair, stage.ship.x, stage.ship.y, light_alpha=0.7)
+        # Drills floating free: they turn slowly and blink so you can find them.
+        for ld in stage.loose:
+            step = int(round(ld.angle / 360 * TURRET_STEPS)) % TURRET_STEPS
+            key = ("loose", step)
+            build = lambda a=step * 360 / TURRET_STEPS: S._finish(I.drill_interior(0.0, 1), I.OUTLINE, a)
+            self._put(self.under, A.get(key, build), ld.x, ld.y)
+            if int(ld.clock * 3) % 2 == 0:
+                self._dot(self.over, ld.x - 1, ld.y - 1, "ion_hi", 2.0, 1.0)
+
+    def _beam(self, x0: float, y0: float, x1: float, y1: float, level: int, t: float) -> None:
+        """The steady tow beam: a dark cyan sheath, a bright core, and pulses running down it
+        toward the ship. Thicker at each level."""
+        w = HL.BEAM_LEVEL_WIDTH.get(level, 1)
+        self._line(self.under, x0, y0, x1, y1, "ion_dark", 1.0, 0.5, width=w + 1.0)
+        if w >= 2:
+            self._line(self.under, x0, y0, x1, y1, "ion", 1.0, 0.8, width=w - 0.5)
+        self._line(self.under, x0, y0, x1, y1, "ion_hi", 1.0, 1.0, width=1.0)
+        length = math.hypot(x1 - x0, y1 - y0)
+        if length < 2:
+            return
+        ux, uy = (x1 - x0) / length, (y1 - y0) / length
+        gap = 14.0
+        shift = (t * 60.0) % gap
+        k = 0.0
+        while k * gap + shift <= length:
+            along = length - (k * gap + shift)           # running from the rock toward the ship
+            self._dot(self.under, x0 + ux * along, y0 + uy * along, "ion_white", 1.0 if w < 2 else 2.0, 1.0)
+            k += 1
+        self._dot(self.under, x0, y0, "ion_white", 1.0, 1.0)
+
+    def _haul_over(self, stage, haul, t: float) -> None:
+        """Brackets round the asteroid Q would grab: bright if your lasso can tow it, grey if not."""
+        if not stage.ship_visible:
+            return
+        target = haul.target()
+        if target is None:
+            return
+        i, ok = target
+        size = int(stage.field.size[i])
+        x, y = haul.rock_pos(i)
+        frame = int(t * 3) % 2
+        pair = self.art.get(("brk", size, ok, frame), lambda s=size, o=ok, fr=frame: HL.target_brackets(s, o, fr))
+        self._put(self.over, pair, x, y, light_alpha=0.6 if ok else 0.0)
 
     def _crumble(self, a, f: int):
         """The frames of an asteroid crumbling away, built when it starts."""

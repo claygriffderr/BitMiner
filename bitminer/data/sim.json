@@ -1,0 +1,40 @@
+{
+  "about": "The balance simulator (`python -m bitminer.sim`): a bot plays whole games of Secure the Base through the same controls you have, with no graphics, and reports whether the pacing guide's targets are met. `step_rate` is how many steps a second it plays at (the game plays the same at any rate) and `minutes` how long each game lasts. `plan` is what the bot buys, in this order, phase by phase (the Planned spending column of the pacing guide's budget); a key the shop doesn't sell yet is skipped and listed in the report, and `sentry_missile:3` means that sentry at tier 3. `presets` are three kinds of player. `aim_error` is how far off its aim wanders, in degrees. `pause` is the average seconds it wastes after finishing each job, and `shop_seconds` how long each station visit takes. `cruise` is the fastest it flies, `tow_speed` the fastest it tows. It fights enemies within `engage` of it, holding between `keep` (nearest, furthest) from them, and swaps the auto cannon for the sniper beyond `sniper_from`. It buys a hull repair when it visits the station below `repair_at` of its hull. `bot` holds the bot's own habits: it looks for ore within `mine_range` of home base and rocks to tow within `tow_range` of the ring (and when there is none left that near, `range_grow` times further each time, up to `range_max`), loads a drill once it holds `load_at` ore, flies home once it carries `home_at` ore, puts the ring `ring_range` (nearest, furthest) from home base, gives up on a job after `give_up` seconds and leaves that rock alone for `avoid` seconds, and counts a structure as under attack for `alarm` seconds after it is hit. `marks` are the pass marks from the pacing guide: each is the median over the seeds, and passes when it is between `low` and `high` (minutes, or a count for deaths). `window` is how many minutes the report averages income over when it looks for the minute combat income passes mining income.",
+  "step_rate": 30,
+  "minutes": 60,
+  "window": 5,
+  "plan": {
+    "early": ["sniper", "drill", "drill", "shield", "armor", "boost", "auto", "sniper",
+              "mine", "mine", "mine", "mine", "mine"],
+    "mid": ["drill", "drill", "drill", "drill", "drill", "lasso", "lasso", "lasso", "ring", "drill_yield",
+            "shield", "armor", "boost", "auto", "sniper"],
+    "late": ["shield", "armor", "boost", "auto", "sniper", "laser", "sentry_missile:3", "sentry_missile:3"]
+  },
+  "presets": {
+    "careful": {"aim_error": 5.0, "pause": 4.0, "shop_seconds": 8.0, "cruise": 240, "tow_speed": 150,
+                "engage": 440, "keep": [200, 330], "sniper_from": 180, "repair_at": 0.75},
+    "average": {"aim_error": 7.0, "pause": 2.5, "shop_seconds": 6.0, "cruise": 280, "tow_speed": 170,
+                "engage": 400, "keep": [150, 280], "sniper_from": 200, "repair_at": 0.6},
+    "motivated": {"aim_error": 3.0, "pause": 0.5, "shop_seconds": 3.0, "cruise": 340, "tow_speed": 200,
+                  "engage": 400, "keep": [120, 250], "sniper_from": 200, "repair_at": 0.5}
+  },
+  "bot": {
+    "mine_range": 1600,
+    "tow_range": 2200,
+    "range_grow": 1.5,
+    "range_max": 8000,
+    "load_at": 30,
+    "home_at": 100,
+    "ring_range": [300, 900],
+    "give_up": 90,
+    "avoid": 180,
+    "alarm": 6
+  },
+  "marks": [
+    {"key": "early_done", "label": "Early list bought", "low": 10, "high": 14, "unit": "min"},
+    {"key": "mid_done", "label": "Mid list bought", "low": 27, "high": 33, "unit": "min"},
+    {"key": "crossover", "label": "Combat income passes mining income", "low": 25, "high": 32, "unit": "min"},
+    {"key": "two_missile_t3", "label": "Two tier 3 missile sentries owned", "low": 50, "high": 58, "unit": "min"},
+    {"key": "deaths_before_wave_30", "label": "Deaths before wave 30", "low": 0, "high": 3, "unit": "deaths"}
+  ]
+}

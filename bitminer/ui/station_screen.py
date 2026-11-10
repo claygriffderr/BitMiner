@@ -17,10 +17,12 @@ from functools import lru_cache
 import arcade
 
 from art import hud
+from art import sprites as S
+from art import pix
 from art import station as ST
 
 from ..combat.shop import PAGE_ITEMS, PAGES, SENTRY_ITEMS, Shop
-from ..combat.specs import SENTRIES, SHOP, WEAPONS
+from ..combat.specs import HAUL, SENTRIES, SHOP, WEAPONS
 from ..graphics.textures import tex
 
 LEFT = 640 - ST.PANEL_W - 6
@@ -30,7 +32,8 @@ BLINK_HZ = 3
 
 NAMES = {"shield": "SHIELD", "armor": "ARMOR", "boost": "BOOST", "repair": "HEALTH", "auto": "AUTO CANNON",
          "sniper": "SNIPER", "missiles": "MISSILES", "laser": "LASER", "drill": "DRILL", "mine": "MINE",
-         "sentry_auto": "AUTO SENTRY", "sentry_sniper": "SNIPER SENTRY", "sentry_missile": "MISSILE SENTRY"}
+         "sentry_auto": "AUTO SENTRY", "sentry_sniper": "SNIPER SENTRY", "sentry_missile": "MISSILE SENTRY",
+         "lasso": "LASSO", "ring": "COLLECTOR RING"}
 ABOUT = {
     "shield": "SOAKS UP HITS, THEN RECHARGES A FEW SECONDS AFTER THE LAST ONE. STRONGER SHIELDS TAKE LONGER TO "
               "RECHARGE.",
@@ -44,15 +47,20 @@ ABOUT = {
     "laser": "HOLD FIRE {charge:g} SECONDS TO CHARGE IT, THEN SWEEP THE BEAM. YOU CAN TURN BUT NOT MOVE WHILE "
              "IT CHARGES. {charges} CHARGES THAT COME BACK SLOWLY.",
     "drill": "PRESS F NEXT TO AN ASTEROID WITH ORE. IT DIGS UNTIL ITS HOLD IS FULL, THEN WAITS FOR YOU. "
-             "THE ASTEROID CRUMBLES ONCE IT'S EMPTY AND TAKES ITS DRILLS WITH IT.",
+             "WHEN THE ASTEROID RUNS DRY ITS DRILLS FLOAT FREE: FLY OVER THEM TO PICK THEM UP.",
     "mine": "HOLD G TO LAY THEM BEHIND YOU: HOLD STILL FOR A PILE, KEEP FLYING FOR A LINE. ONE GOES OFF WHEN AN "
             "ENEMY FLIES RIGHT OVER IT. IT NEVER HURTS YOU OR YOUR THINGS.",
     "sentry_auto": "PLACE IT WITH R. FIRES QUICK PELLETS. ENEMIES CAN DESTROY IT.",
     "sentry_sniper": "PLACE IT WITH R. LONG-RANGE ROUNDS THAT GO THROUGH {pierce} ENEMIES.",
     "sentry_missile": "PLACE IT WITH R. FIRES SALVOS OF {salvo} HOMING MISSILES.",
+    "lasso": ["PRESS Q TO TOW A ROCK BEHIND YOU.", "LET GO AND IT FLIES ON. FAST ROCKS HURT ENEMIES."],
+    "ring": ["HOLD T TO SEE WHERE IT GOES, LET GO TO PLACE IT. TOW UP TO {slots} ROCKS INSIDE AND THEIR DRILLS "
+             "SELL ON THEIR OWN.", "R INSIDE IT MOUNTS A SENTRY. ENEMIES RAID IT."],
+    "ring_repair": ["PATCHES UP {share} OF YOUR RING'S HEALTH."],
 }
 BLOCKED = {"OWNED": "OWNED", "SOON": "COMING NEXT SPRINT", "MAX": "YOU HAVE THE MOST"}
-LEVEL_WORDS = {"shield": ("WEAK", "STRONG", "TOUGHEST")}
+LEVEL_WORDS = {"shield": ("WEAK", "STRONG", "TOUGHEST"), "lasso": ("SMALL", "MEDIUM", "LARGE")}
+LASSO_ROCKS = (24, 48, 96)       # the asteroid shown on each lasso level's card
 
 
 def page_content(game, page: str, selected: int) -> tuple[list[ST.Row], ST.Detail]:
@@ -85,7 +93,7 @@ def _counts(game) -> dict:
     for gun, _ in d.carried:
         held["sentry_" + gun] += 1
     return {"hull": int(round(100 * st.hull / st.hull_max)), "missiles": shop.missiles_carried(),
-            "carried": game.drills_carried, "out": len(game.drills), "mines": d.mines_carried,
+            "carried": game.drills_carried, "out": len(game.drills) + len(st.loose), "mines": d.mines_carried,
             "mines_out": len(st.mines), "sentries_held": held, "sentries_out": out}
 
 
@@ -98,7 +106,7 @@ def _row(game, o) -> ST.Row:
     key = o.key
     name = NAMES[key]
     if o.upgrade:
-        return ST.Row(key, name, o.price, level=o.level)
+        return ST.Row(key, name, o.price, level=o.level, levels=game.gear.max_level(key))
     if o.soon:
         return ST.Row(key, name, None, sub="NEXT SPRINT", owned=False, tag="SOON")
     if key == "repair":
@@ -122,14 +130,26 @@ def _row(game, o) -> ST.Row:
         held, out = c["sentries_held"][key], c["sentries_out"][key]
         sub = f"{held} CARRIED  {out} OUT" if held or out else f"FROM {Shop.sentry_price(key, 1):,}"
         return ST.Row(key, name, o.price, sub=sub, tag="MAX" if o.blocked else None)
+    if key == "ring":
+        return ST.Row(key, name, o.price, sub=_ring_state(game), owned=True)
     return ST.Row(key, name, o.price)
+
+
+def _ring_state(game) -> str:
+    haul = game.haul
+    if haul.has_ring():
+        return f"HEALTH {_pct(haul.ring.health / haul.ring.max_health)}"
+    if haul.rings_carried:
+        return "CARRIED: HOLD T"
+    return f"HOLDS {int(HAUL['slots'])} ROCKS"
 
 
 def _steps(o, values: list[str], prices: list[int], art=None) -> list[ST.Step]:
     out = []
-    for i in range(3):
+    for i in range(len(prices)):         # one card for each level the data file gives it
         state = "owned" if i < o.level else ("next" if i == o.level else "locked")
-        out.append(ST.Step(f"LV{i + 1}", values[i], int(prices[i]), state, art=None if art is None else art[i]))
+        out.append(ST.Step(f"LV{i + 1}", values[i] if i < len(values) else "", int(prices[i]), state,
+                           art=None if art is None or i >= len(art) else art[i]))
     return out
 
 
@@ -143,13 +163,22 @@ def _tier_art(gun: str, tier: int):
     return ST._tier_art(gun, tier)
 
 
+@lru_cache(maxsize=None)
+def _rock_art(d: int):
+    """A small asteroid for a lasso level's card: the size it can tow."""
+    from PIL import Image
+    img = S.tight(S.asteroid(d, 40 + d, 0)).resize((max(5, d // 4), max(5, d // 4)), Image.NEAREST)
+    return pix.scale(img, 2)
+
+
 def _upgrade_detail(game, o) -> ST.Detail:
     key = o.key
     lv = o.level
     up = SHOP["upgrades"][key]
     prices = up["prices"]
-    nxt = min(lv, 2)                       # the level the next purchase gives, as an index
-    sub = f"LEVEL {lv} OF 3" if lv else "NOT UPGRADED YET"
+    top = len(prices)
+    nxt = min(lv, top - 1)                 # the level the next purchase gives, as an index
+    sub = f"LEVEL {lv} OF {top}" if lv else "NOT UPGRADED YET"
     stats, bars, art = [], [], None
     if key == "shield":
         strength = up["strength"]
@@ -164,7 +193,7 @@ def _upgrade_detail(game, o) -> ST.Detail:
     elif key == "armor":
         block = up["block"]
         values = [_pct(float(b)) for b in block[1:]]
-        stats = [("BLOCKS", _pct(float(block[lv])), _pct(float(block[min(lv + 1, 3)])))]
+        stats = [("BLOCKS", _pct(float(block[lv])), _pct(float(block[min(lv + 1, len(block) - 1)])))]
         if not lv:
             sub = "STARTING ARMOR"
     elif key == "boost":
@@ -174,6 +203,12 @@ def _upgrade_detail(game, o) -> ST.Detail:
         stats = [("TOP SPEED", now, f"+{_pct(float(gain[nxt]))}"), ("THRUST", now, f"+{_pct(float(gain[nxt]))}")]
         if not lv:
             sub = "NO BOOST YET"
+    elif key == "lasso":
+        values = list(LEVEL_WORDS["lasso"])
+        art = [_rock_art(d) for d in LASSO_ROCKS]
+        stats = [("TOWS", values[lv - 1] if lv else "-", values[min(nxt, len(values) - 1)])]
+        if not lv:
+            sub = "NOT OWNED YET"
     else:
         dmg = up["damage"]
         values = [f"X{float(d):g}" for d in dmg]
@@ -184,11 +219,31 @@ def _upgrade_detail(game, o) -> ST.Detail:
             base = int(WEAPONS["sniper"]["pierce"])
             stats.append(("PIERCE", str(pierce[lv - 1] if lv else base), str(pierce[nxt])))
     about = ABOUT["sniper_up" if key == "sniper" else key]
+    lines = about if isinstance(about, list) else [about]
     if o.blocked == "MAX":
-        return ST.Detail(NAMES[key], "LEVEL 3 OF 3", [about], _steps(o, values, prices, art), buy="FULLY UPGRADED",
+        return ST.Detail(NAMES[key], f"LEVEL {top} OF {top}", lines, _steps(o, values, prices, art), buy="FULLY UPGRADED",
                          price=None)
-    return ST.Detail(NAMES[key], sub, [about], _steps(o, values, prices, art), stats=stats, bars=bars,
+    return ST.Detail(NAMES[key], sub, lines, _steps(o, values, prices, art), stats=stats, bars=bars,
                      buy=f"BUY LV{lv + 1}", price=o.price)
+
+
+def _ring_detail(game, o) -> ST.Detail:
+    haul = game.haul
+    if haul.has_ring():
+        ring = haul.ring
+        now = ring.health / ring.max_health
+        share = float(Shop.item("ring")["repair_restores"])
+        lines = [s.format(share=_pct(share)) for s in ABOUT["ring_repair"]]
+        bars = [("HEALTH", now, min(1.0, now + share))]
+        if o.blocked:
+            return ST.Detail(NAMES["ring"], f"PLACED  HEALTH {_pct(now)}", lines, [], bars=bars, buy="RING IS FULL",
+                             price=None)
+        return ST.Detail(NAMES["ring"], f"PLACED  HEALTH {_pct(now)}", lines, [], bars=bars, buy="REPAIR",
+                         price=o.price)
+    lines = [s.format(slots=int(HAUL["slots"])) for s in ABOUT["ring"]]
+    if o.blocked:
+        return ST.Detail(NAMES["ring"], "CARRIED: HOLD T TO PLACE IT", lines, [], buy="OWNED", price=None)
+    return ST.Detail(NAMES["ring"], "ONE AT A TIME", lines, [], buy="BUY RING", price=o.price)
 
 
 def _sentry_detail(game, o) -> ST.Detail:
@@ -214,6 +269,8 @@ def _detail(game, o) -> ST.Detail:
         return _upgrade_detail(game, o)
     if key in SENTRY_ITEMS:
         return _sentry_detail(game, o)
+    if key == "ring":
+        return _ring_detail(game, o)
     laser = WEAPONS["laser"]
     about = ABOUT[key].format(pierce=WEAPONS["sniper"].get("pierce", 3), charge=laser.get("charge_time", 2.0),
                               charges=laser["charges"])

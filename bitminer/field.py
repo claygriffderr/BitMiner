@@ -59,6 +59,7 @@ class AsteroidField:
         self.wear = np.zeros(0, dtype=np.int8)     # crack stage 0 to 3 as drills empty a rock
         self.gone = np.zeros(0, dtype=bool)        # crumbled away: no longer in the field
         self.sites: dict[int, list[float]] = {}    # where drills sit on a rock (headings), for its cracks
+        self.held: set[int] = set()                # rocks something is pulling (the lasso): never put to sleep
         self._reach_cache = None
         self._reach_max = 0.0
         self._r_max = 0.0
@@ -139,6 +140,7 @@ class AsteroidField:
         if self.gone[i]:
             return
         self.gone[i] = True
+        self.held.discard(i)
         self.ore[i] = False
         self.vx[i] = self.vy[i] = 0.0
         cell = self._grid.get(int(self._cell[i]))
@@ -295,6 +297,10 @@ class AsteroidField:
             touched.update(self._collide_rock(int(i)))
         self._refile(np.array(sorted(touched), dtype=np.int64))
         slow = np.hypot(self.vx, self.vy) < SLEEP_SPEED
+        if self.held:
+            # A rock on the lasso gains only a little speed each step (less the shorter the step),
+            # so putting it to sleep would stop it ever moving, differently at each frame rate.
+            slow[[i for i in self.held if i < len(slow)]] = False
         self.vx[slow] = 0.0
         self.vy[slow] = 0.0
 

@@ -19,15 +19,24 @@ Early development, built in short sprints with a playable or reviewable demo at 
 6. Station and item art (design review)
 7. Drills and the station shop
 8. Upgrades, sentries and mines
-9. The full loop
-10. Adaptive AI
-11. Polish and share
+9. Lasso and collector ring art (design review)
+10. Lasso and collector ring
+11. Pacing foundations: frame-rate fixes and the balance simulator (pacing guide sprint A)
+12. Waves: timer launches, threat budgets, tanks and massive waves (pacing guide sprint B)
+13. Economy (pacing guide sprint C)
+14. Sentry handling (pacing guide sprint D)
+15. The full loop: the mothership fights back, lives, winning and losing
+16. Adaptive AI
+17. Polish and share
 
 ## Play it
 
-Windows: download `BitMiner-UpgradesAndDefenses-windows.zip` from the
-[upgrades-and-defenses release](https://github.com/claygriffderr/BitMiner/releases/tag/upgrades-and-defenses), unzip it
+Windows: download `BitMiner-PacingWaves-windows.zip` from the
+[pacing-waves release](https://github.com/claygriffderr/BitMiner/releases/tag/pacing-waves), unzip it
 and run `BitMiner.exe`. Each push to a sprint branch rebuilds it. (Earlier sprints stay on the
+[pacing-foundations](https://github.com/claygriffderr/BitMiner/releases/tag/pacing-foundations),
+[lasso-and-ring](https://github.com/claygriffderr/BitMiner/releases/tag/lasso-and-ring),
+[upgrades-and-defenses](https://github.com/claygriffderr/BitMiner/releases/tag/upgrades-and-defenses),
 [drills-and-shop](https://github.com/claygriffderr/BitMiner/releases/tag/drills-and-shop),
 [secure-the-base](https://github.com/claygriffderr/BitMiner/releases/tag/secure-the-base),
 [combat-sandbox](https://github.com/claygriffderr/BitMiner/releases/tag/combat-sandbox),
@@ -52,18 +61,28 @@ goes back to it.
   the mothership across the map. You start with one drill, the auto cannon and no shield. F sets a
   drill on an ore asteroid next to you (several can share one); a drill fills its gold bar and
   waits for you to fly past and load it, and you sell the ore at home base. Asteroids crack as they
-  empty, then crumble away and take their drills with them. Press E at the station to open its
+  empty, then crumble away; their drills float free, and one you fly near flies in to your ship and
+  goes back in your hold. Press E at the station to open its
   shop (the game keeps running): more drills, the sniper, missiles six at a time, the laser, hull
   repairs, 3-level upgrades (shield, armor, boost, auto cannon and sniper), explosive mines and
-  sentries. Shift boosts once you own it. Hold G to lay the mines you carry behind you (hold still
+  sentries, the lasso and the collector ring. Shift boosts once you own it. Hold G to lay the mines you carry behind you (hold still
   for a pile, keep flying for a line); they go off when an enemy flies over one and never hurt you
   or your base. R sets down a sentry you carry (auto, sniper or missile, 3 tiers each): it turns
-  and fires at enemies in range, and enemies can destroy it. Every enemy you destroy pays credits
+  and fires at enemies in range, and enemies can destroy it. Q grabs the nearest asteroid with
+  the lasso (3 levels: small, medium, then large rocks) and tows it on a beam of fixed length; Q
+  again lets go, and the rock keeps its speed, so a fast throw hurts what it hits. Hold T to see
+  where the collector ring would go and let go of T to place it round you: it holds up to 4
+  asteroids you tow in, sells their drills' ore by itself whenever a drill fills, and R inside it
+  mounts sentries on its 4 mounts (they share the ring's health and break with it). Enemies can't fly into the ring. Every enemy you destroy pays credits
   on the spot, more for the dangerous ones, and = adds 1,000 test credits so every item can be
   tried. The laser charges for 2 seconds while you hold fire. Enemies only know where you
   are while one of them can see you: then they all do, and when they lose you they search where you
-  were last seen, then go home. They raid drills they come across. Each wave launches once only a
-  few of the last are still out. Dim arrows at the screen edge point at home base and each drill,
+  were last seen, then go home. They raid drills they come across. Waves launch on a timer that
+  shrinks from 120 to 45 seconds whether or not you beat the last one (the HUD counts down), each
+  built from a threat budget that grows with the wave number; tanks with escorts join at wave 12,
+  and wave 30 and every 10th after it is a massive wave of 200 ships that leaves in five groups (M
+  skips the wave count to just before it, for testing). The WAVE GAP and WAVE SIZE sliders scale
+  both. Dim arrows at the screen edge point at home base and each drill,
   with the drill's gold bar and health beside it.
 - Combat sandbox: wave after wave of infantry squads, guards and rapid assault ships in the asteroid
   field. WASD flies, the mouse aims, click fires, 1 to 4 (or the mouse wheel, Q and E) picks the
@@ -79,7 +98,8 @@ goes back to it.
 Starting values for the sliders live in `bitminer/data/tuning.json`, every weapon, enemy and
 defense number in `bitminer/data/weapons.json`, and how enemies fight and when waves arrive in
 `bitminer/data/combat.json` (with drills, the mothership's waves and how enemies search in its `drills`,
-`fleet` and `hunt` blocks, and mines and sentries in its `mines` and `sentries` blocks), the station shop's prices,
+`fleet` and `hunt` blocks, mines and sentries in its `mines` and `sentries` blocks, and the lasso and collector
+ring in its `haul` block), the station shop's prices,
 the upgrade levels, your starting kit and what each kill pays in `bitminer/data/shop.json`,
 and the big map in `bitminer/data/map.json`, so none of them are fixed in code. Each game or sandbox fight is also written
 to a `playdata` folder next to the settings file, for the adaptive AI to learn from later.
@@ -98,6 +118,9 @@ with pixel-perfect integer scaling.
   (`hunt.py`), your weapons (`arsenal.py`), the station shop (`shop.py`), the upgrades you own and
   the boost meter (`gear.py`), mines and sentries (`defenses.py`), and the sandbox and
   Secure the Base without graphics (`sandbox.py`, `campaign.py`)
+- `bitminer/sim/`: the balance simulator: a bot that plays whole games through the player's controls
+  (`bot.py`), what one game measures (`run.py`) and the report with its pass marks (`report.py`);
+  its shopping list, player presets and pass marks are in `bitminer/data/sim.json`
 - `bitminer/playdata.py`: the play log
 - `bitminer/gallery/`: the weapon gallery's scenes and the director that plays them
 - `bitminer/views/`: the menu, Secure the Base, flight test, combat sandbox and gallery screens
@@ -108,6 +131,7 @@ with pixel-perfect integer scaling.
 pip install -r requirements-dev.txt
 python -m pytest                         # unit tests (BITMINER_GL_TESTS=1 also drives the window)
 python -m bitminer --selftest            # quick check with no window
+python -m bitminer.sim --preset motivated --seeds 10   # balance report: a bot plays 10 one-hour games
 python packaging/build.py                # BitMiner.exe and its zip, in dist/
 python packaging/render_check.py dist/BitMiner shots --no-mesa   # run the built game, print what it drew
 python -m bitminer --record gifs/ --size 1280x720                 # a GIF of every gallery scene

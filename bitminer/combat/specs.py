@@ -30,6 +30,7 @@ FLEET: dict = _COMBAT["fleet"]
 DRILLS: dict = _COMBAT["drills"]
 MINES: dict = _COMBAT["mines"]
 SENTRIES: dict = _COMBAT["sentries"]
+HAUL: dict = _COMBAT["haul"]
 PLAYDATA: dict = _COMBAT["playdata"]
 
 SHOP_FILE = DATA_FILE.parent / "shop.json"

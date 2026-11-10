@@ -14,12 +14,14 @@ import random
 from dataclasses import dataclass, field
 from typing import Callable
 
+import numpy as np
+
 from art import sprites as S
 
 from ..field import wrap_delta
 from ..flight import Ship, angle_to, forward_vector, right_vector, wrap_angle
 from . import shapes
-from .specs import DEFENSE, ENEMIES, ENEMY_WEAPONS, WEAPONS
+from .specs import AI, DEFENSE, ENEMIES, ENEMY_WEAPONS, HUNT, WEAPONS
 
 SNAP = 45.0                      # Enemies (but not the mothership) face one of eight directions.
 SCOOP_REACH = S.scoop_reach()    # How far a deployed ram scoop sticks out in front of a guard.
@@ -31,6 +33,14 @@ PODS = [(-6.0, 0.0), (6.0, 0.0)]           # missile launch rails
 ENEMY_GUN = {"infantry": (0.0, 5.0), "rapid": (0.0, 6.0)}
 TANK_PODS = [(-10.5, 6.0), (10.5, 6.0)]
 EMITTER = (0.0, 56.5)                      # the mothership's laser, at its nose
+
+# Saving work when a lot is flying: a ship or shot with no rock within ROCK_SCAN isn't checked
+# against rocks again until one could have reached it, allowing ROCK_DRIFT for the rock's own speed.
+ROCK_SCAN = 160.0
+ROCK_DRIFT = 120.0
+ROCK_LOOK = float(AI["avoid"]["look"]) + float(AI["avoid"]["margin"]) + 2.0    # how far ahead pilots look
+ENEMY_TOP = {kind: max(float(spec.get("speed", 0.0)), float(spec.get("ram_speed", 0.0)), float(HUNT["cruise_speed"]))
+             for kind, spec in ENEMIES.items()}                                 # the fastest each kind flies
 
 
 def snap_angle(a: float) -> float:
@@ -76,6 +86,9 @@ class Enemy:
     age: float = 0.0
     brain: object = None         # what flies it in a real fight
     immune: bool = False         # hits spark off it but do no damage (the mothership, until it can fight back)
+    wave: int = 0                # the wave it launched with (0: none)
+    rock_free: float = 0.0       # stage time until which no rock can be near enough to steer round
+    rock_touch: float = 0.0      # stage time until which no rock can touch its hull
 
     @property
     def mass(self) -> float:
@@ -119,6 +132,8 @@ class Shot:
     pad: float = 0.5
     hit: set = field(default_factory=set)
     clock: float = 0.0
+    lead: float = 0.0            # seconds it was due before the frame it left on: flown on its first step
+    rock_free: float = 0.0       # stage time until which it can't reach a rock
 
     @property
     def heading(self) -> float:
@@ -266,8 +281,9 @@ class Lane:
 
 @dataclass
 class Structure:
-    """Something of yours that sits still and can be shot at: a drill on an asteroid, or home base."""
-    kind: str                    # "drill" or "base"
+    """Something of yours that sits still and can be shot at: a drill on an asteroid, home base, a
+    sentry or the collector ring."""
+    kind: str                    # "drill", "base", "sentry" or "ring"
     x: float
     y: float
     radius: float                # enemy shots within this of the centre hit it
@@ -285,6 +301,10 @@ class Structure:
     side: float = 0.0            # a drill: which way it faces out from its asteroid (heading, degrees)
     working: bool = False        # a drill: dug something this step
     lift: float = 0.0            # a drill: how far its centre sits from its asteroid's centre
+    host: "Structure | None" = None   # a sentry on the collector ring: hits on it hurt the ring instead
+    hoop: float = 0.0            # the collector ring: shots hit only its band, `radius` +- this
+    wall: float = 0.0            # the collector ring: enemy hulls are kept this far from its centre (0: no wall)
+    ward: float = 0.0            # seconds until its wall next sparks where an enemy presses on it
 
 
 class Stage:
@@ -340,16 +360,19 @@ class Stage:
         self.damage_mult = {"auto": 1.0, "sniper": 1.0}   # weapon upgrades
         self.sniper_pierce = int(WEAPONS["sniper"]["pierce"])
         self.mines: list = []        # your laid mines (see combat/defenses.py)
+        self.loose: list = []        # drills floating free after their asteroid crumbled (combat/haul.py)
+        self.haul = None             # the lasso and collector ring (combat/haul.py), for drawing
         self.ship_down = False
         self.invulnerable = 0.0      # seconds left of the blink after a respawn
         self.quiet = 99.0            # seconds since you last took damage
         self.events: list[tuple] = []   # what happened, for the HUD and the play log
+        self.rock_gap = 0.0          # left by `rock_hit(scan=...)`: how far the path's start is from a rock
 
     # ------------------------------------------------------------ setup
 
     def clear(self) -> None:
         for name in ("enemies", "shots", "missiles", "beams", "anims", "rings", "chunks", "streaks",
-                     "lanes", "structures", "timeline", "mines"):
+                     "lanes", "structures", "timeline", "mines", "loose"):
             getattr(self, name).clear()
         self.screen_flash = 0.0
         self.ship_flash = 0.0
@@ -420,7 +443,7 @@ class Stage:
             if (dx or dy) and e.brain is not None and hasattr(e.brain, "moved"):
                 e.brain.moved(dx, dy)
         for group in (self.shots, self.missiles, self.anims, self.rings, self.chunks, self.lanes, self.structures,
-                      self.mines):
+                      self.mines, self.loose):
             for o in group:
                 shift(o)
         for b in self.beams:
@@ -458,7 +481,7 @@ class Stage:
 
     # ------------------------------------------------------------ your weapons
 
-    def fire_auto(self, heading: float | None = None) -> None:
+    def fire_auto(self, heading: float | None = None, lead: float = 0.0) -> None:
         w = WEAPONS["auto"]
         ship = self.ship
         h = ship.angle if heading is None else heading
@@ -469,12 +492,12 @@ class Stage:
         fx, fy = forward_vector(a)
         speed = w["speed"]
         self.shots.append(Shot("player", "auto", x, y, fx * speed + ship.vx, fy * speed + ship.vy,
-                               w["damage"] * self.damage_mult["auto"], w["range"] / speed))
+                               w["damage"] * self.damage_mult["auto"], w["range"] / speed, lead=lead))
         self.anims.append(Anim("muzzle", ("auto",), 2, 30, x, y, ship.angle,
                                follow=self._ship_follow(right, fwd)))
         self.events.append(("fire", "auto"))
 
-    def fire_sniper(self, heading: float | None = None) -> None:
+    def fire_sniper(self, heading: float | None = None, lead: float = 0.0) -> None:
         w = WEAPONS["sniper"]
         ship = self.ship
         h = ship.angle if heading is None else heading
@@ -482,7 +505,7 @@ class Stage:
         fx, fy = forward_vector(h)
         speed = w["speed"]
         self.shots.append(Shot("player", "sniper", x, y, fx * speed, fy * speed, w["damage"] * self.damage_mult["sniper"],
-                               w["range"] / speed, pierce=self.sniper_pierce, pad=1.0))
+                               w["range"] / speed, pierce=self.sniper_pierce, pad=1.0, lead=lead))
         self.anims.append(Anim("muzzle", ("sniper",), 2, 20, x, y, ship.angle,
                                follow=self._ship_follow(*NOSE)))
         # Recoil: a small shove backwards, and a puff off the nose.
@@ -527,7 +550,7 @@ class Stage:
         self.events.append(("fire", "missile"))
         return True
 
-    def sentry_shot(self, kind: str, x: float, y: float, heading: float, spec: dict) -> None:
+    def sentry_shot(self, kind: str, x: float, y: float, heading: float, spec: dict, lead: float = 0.0) -> None:
         """A sentry's round: `kind` is auto or sniper, fired from (x, y) toward `heading`."""
         speed = float(spec["speed"])
         a = heading + (self.rng.gauss(0, spec["spread"]) if spec.get("spread") else 0.0)
@@ -535,7 +558,7 @@ class Stage:
         sniper = kind == "sniper"
         self.shots.append(Shot("player", "sentry_" + kind, x, y, fx * speed, fy * speed, float(spec["damage"]),
                                float(spec["range"]) * 1.15 / speed, pierce=int(spec.get("pierce", 1)),
-                               pad=1.0 if sniper else 0.5))
+                               pad=1.0 if sniper else 0.5, lead=lead))
         self.anims.append(Anim("muzzle", ("sniper" if sniper else "auto",), 2, 30 if not sniper else 20, x, y, heading))
         if sniper:
             self.sparks.burst("ion_spark", x, y, math.radians(90 - heading), 0.5, 4, (20, 60), (0.08, 0.2))
@@ -604,14 +627,15 @@ class Stage:
                                pad=2.0 if kind == "infantry" else 0.5))
         self.anims.append(Anim("flare", ("danger",), 2, 24, x, y))
 
-    def tank_missiles(self, tank: Enemy) -> None:
+    def tank_missiles(self, tank: Enemy, target: object = "player") -> None:
+        """One homing missile from each of a tank's pods, at you or at one of your structures."""
         spec = ENEMY_WEAPONS["tank_missile"]
         for right, fwd in TANK_PODS:
             x, y = tank.point(right, fwd)
             h = tank.sprite_angle + (-25 if right < 0 else 25)
             self.missiles.append(Missile(
                 "enemy", x, y, h, spec["launch_speed"], spec["max_speed"], spec["accel"], spec["turn_rate"],
-                spec["damage"], 9.0, target="player", health=spec["health"], uid=self.uid()))
+                spec["damage"], 9.0, target=target, health=spec["health"], uid=self.uid()))
             self.smoke.burst("smoke", x, y, math.radians(90 - h), 0.7, 6, (8, 26), (0.4, 0.8))
             self.anims.append(Anim("flare", ("danger",), 2, 20, x, y))
         tank.pods_loaded = False
@@ -678,13 +702,17 @@ class Stage:
             return
         e.vx += vx / e.mass
         e.vy += vy / e.mass
+        e.rock_free = e.rock_touch = 0.0
 
     def damage_structure(self, t: Structure, amount: float, x: float, y: float, source: str = "") -> None:
-        """An enemy hit one of your drills (or your base)."""
+        """An enemy hit one of your drills (or your base, a sentry or the collector ring)."""
         if not t.alive:
             return
         t.flash = 1.0
         t.since_hit = 0.0
+        if t.host is not None:
+            self.damage_structure(t.host, amount, x, y, source)     # a mounted sentry: the ring takes it
+            return
         if t.immune:
             return
         amount = min(amount, t.health)
@@ -694,6 +722,9 @@ class Stage:
             t.health = 0.0
             t.alive = False
             self.events.append(("struct_lost", t.kind, t.uid))
+            if t.hoop > 0:
+                self._ring_break(t)
+                return
             self.anims.append(Anim("explosion", ("player", 49, t.uid % 3), 6, 12, t.x, t.y))
             self.anims.append(Anim("explosion", ("player", 33, 1), 6, 14, t.x + 6, t.y - 4, delay=0.15))
             self.rings.append(Ring("player", t.x, t.y, 6, 36, 0.4))
@@ -701,6 +732,23 @@ class Stage:
                 self._chunk("steel", t.x, t.y, 30, 110)
             self.sparks.burst("ion_spark", t.x, t.y, 0.0, math.pi, 20, (30, 120), (0.3, 0.7))
             self.smoke.burst("smoke", t.x, t.y, 0.0, math.pi, 14, (10, 50), (0.6, 1.2))
+
+    def _ring_break(self, t: Structure) -> None:
+        """The collector ring breaks apart: blasts all round its band, one after another, and a
+        spray of hull pieces."""
+        n = 12
+        for i in range(n):
+            a = math.tau * i / n + self.rng.uniform(-0.15, 0.15)
+            x, y = t.x + math.cos(a) * t.radius, t.y + math.sin(a) * t.radius
+            delay = 0.06 * i + self.rng.uniform(0.0, 0.05)
+            size = 49 if i % 3 == 0 else 33
+            self.anims.append(Anim("explosion", ("player", size, i % 3), 6, 12, x, y, delay=delay))
+            for _ in range(2):
+                self._chunk("steel", x, y, 30, 120)
+            self.sparks.burst("ion_spark", x, y, a, 1.0, 6, (30, 120), (0.3, 0.7))
+            self.smoke.burst("smoke", x, y, a, 1.2, 5, (10, 50), (0.6, 1.2))
+        self.kick += 0.8
+        self.screen_flash = max(self.screen_flash, 0.3)
 
     def damage_player(self, amount: float, x: float, y: float, kind: str = "shot", push: float = 0.0,
                       source: str = "") -> str:
@@ -921,6 +969,7 @@ class Stage:
             t.clock += dt
             t.since_hit += dt
             t.flash = max(0.0, t.flash - dt * 8)
+            t.ward = max(0.0, t.ward - dt)
         self.structures = [t for t in self.structures if t.alive]
         if self.collide_bodies:
             self._separate_enemies()
@@ -928,6 +977,7 @@ class Stage:
                 self._collide_ship_enemies()
         if self.field is not None:
             self._collide_enemy_rocks()
+        self._wall_enemies()
 
         self.ship_flash = max(0.0, self.ship_flash - dt * 6)
         self.shield_show = max(0.0, self.shield_show - dt)
@@ -992,6 +1042,7 @@ class Stage:
             ship.vy -= j * inv_s * ny
             e.vx += j * inv_e * nx
             e.vy += j * inv_e * ny
+            e.rock_free = e.rock_touch = 0.0
             self._bump_damage(j, inv_s, inv_e, e, *contact)
 
     def _bump_damage(self, j: float, inv_s: float, inv_e: float, e: Enemy | None, x: float, y: float) -> None:
@@ -1017,18 +1068,39 @@ class Stage:
         self._bump_damage(impulse, 1.0 / max(0.05, self.ship_mass), 0.0, None, x, y)
 
     def _separate_enemies(self) -> None:
-        """Enemy hulls don't stack: overlapping ones are eased apart, the lighter one moving more."""
+        """Enemy hulls don't stack: overlapping ones are eased apart, the lighter one moving more.
+        Ships are sorted into a grid first, so each is only checked against its neighbours (a
+        massive wave has 200 of them)."""
         live = [e for e in self.enemies if e.alive and e.fade_in >= 1.0 and e.kind != "mothership"]
+        if len(live) < 2:
+            return
+        radius = [e.body_r for e in live]
+        cell = 2.0 * max(radius) + 1.0
+        grid: dict[tuple[int, int], list[int]] = {}
+        where = []
+        for i, e in enumerate(live):
+            key = (int(e.x // cell), int(e.y // cell))
+            where.append(key)
+            grid.setdefault(key, []).append(i)
         for i, a in enumerate(live):
-            for b in live[i + 1:]:
+            cx, cy = where[i]
+            near = [j for gx in (cx - 1, cx, cx + 1) for gy in (cy - 1, cy, cy + 1)
+                    for j in grid.get((gx, gy), ()) if j > i]
+            if not near:
+                continue
+            near.sort()
+            ra = radius[i]
+            ia = 1 / a.mass
+            for j in near:
+                b = live[j]
                 dx, dy = b.x - a.x, b.y - a.y
-                r = a.body_r + b.body_r
+                r = ra + radius[j]
                 d2 = dx * dx + dy * dy
                 if d2 >= r * r:
                     continue
                 d = math.sqrt(d2) or 0.01
                 over = (r - d) * 0.5
-                ia, ib = 1 / a.mass, 1 / b.mass
+                ib = 1 / b.mass
                 nx, ny = (dx / d, dy / d) if d > 0.01 else (1.0, 0.0)
                 a.x -= nx * over * ia / (ia + ib) * 2
                 a.y -= ny * over * ia / (ia + ib) * 2
@@ -1039,11 +1111,23 @@ class Stage:
         """Enemy hulls slide off rocks. Their steady flying never shoves a rock (they have no
         momentum to give); only a knock, from a blast or a bump, carries into it."""
         f = self.field
+        now = self.time
         for e in self.enemies:
-            if not e.alive or e.kind == "mothership":
+            if not e.alive or e.kind == "mothership" or now < e.rock_touch:
                 continue
             r = e.body_r
-            idx, dx, dy = f.near(e.x, e.y, r, r)
+            idx, dx, dy = f.near(e.x, e.y, ROCK_SCAN, ROCK_SCAN)
+            gap = float((np.hypot(dx, dy) - f.r[idx]).min()) if len(idx) else ROCK_SCAN
+            top = ENEMY_TOP[e.kind] + math.hypot(e.vx, e.vy) + ROCK_DRIFT
+            need = r + ROCK_LOOK
+            if gap > need:
+                # Nothing near: leave it be until a rock could be.
+                e.rock_free = e.rock_touch = now + (min(gap, ROCK_SCAN) - need) / top
+                continue
+            if gap > r + 2.0:
+                # A rock to steer round, but none it could touch for a moment yet.
+                e.rock_touch = now + (gap - r - 2.0) / top
+                continue
             for i, ddx, ddy in zip(idx, dx, dy):
                 d = math.hypot(ddx, ddy)
                 over = f.r[i] + r - d
@@ -1061,18 +1145,81 @@ class Stage:
                     f.vx[i] += j * inv_a * nx
                     f.vy[i] += j * inv_a * ny
 
-    def rock_hit(self, x0: float, y0: float, x1: float, y1: float, pad: float = 0.0):
-        """Where the path from (x0, y0) to (x1, y1) first touches a rock: (x, y, rock) or None."""
+    def keep_out(self, x: float, y: float, r: float = 0.0) -> tuple[float, float]:
+        """The nearest point to (x, y) where an enemy hull `r` across is outside every walled
+        structure (the collector ring)."""
+        for t in self.structures:
+            if not t.alive or t.wall <= 0:
+                continue
+            R = t.wall + r
+            dx, dy = x - t.x, y - t.y
+            d = math.hypot(dx, dy)
+            if d < R:
+                nx, ny = (dx / d, dy / d) if d > 1e-6 else (0.0, 1.0)
+                x, y = t.x + nx * R, t.y + ny * R
+        return x, y
+
+    def wall_ahead(self, x: float, y: float, ux: float, uy: float, ahead: float, r: float):
+        """The walled structure a hull `r` across at (x, y) would fly into within `ahead` along
+        (ux, uy), or None. One it is already against only counts if that way leads further in."""
+        for t in self.structures:
+            if not t.alive or t.wall <= 0:
+                continue
+            R = t.wall + r - 0.5
+            cx, cy = t.x - x, t.y - y
+            b = cx * ux + cy * uy
+            if b <= 0:
+                continue
+            across = cx * cx + cy * cy - b * b
+            if across >= R * R:
+                continue
+            if b - math.sqrt(R * R - across) <= ahead:
+                return t
+        return None
+
+    def _wall_enemies(self) -> None:
+        """Enemy hulls can't cross a walled structure (the collector ring): one that reaches it is
+        held at its edge and slides round, and a shove into it stops there. The wall sparks."""
+        for t in self.structures:
+            if not t.alive or t.wall <= 0:
+                continue
+            for e in self.enemies:
+                if not e.alive or e.kind == "mothership":
+                    continue
+                R = t.wall + e.body_r
+                dx, dy = e.x - t.x, e.y - t.y
+                d = math.hypot(dx, dy)
+                if d >= R:
+                    continue
+                nx, ny = (dx / d, dy / d) if d > 1e-6 else (0.0, 1.0)
+                e.x, e.y = t.x + nx * R, t.y + ny * R
+                inward = e.vx * nx + e.vy * ny
+                if inward < 0:
+                    e.vx -= inward * nx
+                    e.vy -= inward * ny
+                if t.ward <= 0 and R - d > 0.25:
+                    t.ward = 0.12
+                    self.anims.append(Anim("flare", ("player",), 2, 16, t.x + nx * t.wall, t.y + ny * t.wall))
+
+    def rock_hit(self, x0: float, y0: float, x1: float, y1: float, pad: float = 0.0, scan: float = 0.0):
+        """Where the path from (x0, y0) to (x1, y1) first touches a rock: (x, y, rock) or None.
+        With `scan`, `self.rock_gap` is left holding how far the start of the path is from the
+        nearest rock's edge (`scan` if none is that close)."""
         f = self.field
+        self.rock_gap = scan
         if f is None or not len(f):
             return None
         mx, my = (x0 + x1) / 2, (y0 + y1) / 2
-        hx, hy = abs(x1 - x0) / 2 + pad, abs(y1 - y0) / 2 + pad
+        hx, hy = abs(x1 - x0) / 2 + pad + scan, abs(y1 - y0) / 2 + pad + scan
         idx, dx, dy = f.near(mx, my, hx, hy)
         if not len(idx):
             return None
         sx, sy = x1 - x0, y1 - y0
         L2 = sx * sx + sy * sy
+        if scan > 0:
+            self.rock_gap = min(scan, float((np.hypot(dx + (mx - x0), dy + (my - y0)) - f.r[idx]).min()))
+            if self.rock_gap > math.sqrt(L2) + pad:
+                return None
         best = None
         for i, cdx, cdy in zip(idx, dx, dy):
             # Rock centre relative to the start of the path.
@@ -1106,13 +1253,23 @@ class Stage:
 
     def _step_shots(self, dt: float) -> None:
         keep = []
+        frame = dt
         for s in self.shots:
+            # A shot that was due part-way through the last frame flies that bit further on its
+            # first step, so shots stay evenly spaced whatever the frame rate.
+            dt = frame + s.lead
+            s.lead = 0.0
             s.clock += dt
             x0, y0 = s.x, s.y
             s.x += s.vx * dt
             s.y += s.vy * dt
             s.life -= dt
-            rock = self.rock_hit(x0, y0, s.x, s.y, 0.5) if self.field is not None else None
+            rock = None
+            if self.field is not None and self.time >= s.rock_free:
+                rock = self.rock_hit(x0, y0, s.x, s.y, 0.5, scan=ROCK_SCAN)
+                if rock is None:
+                    s.rock_free = (self.time - dt + (self.rock_gap - 0.5) / (math.hypot(s.vx, s.vy) + ROCK_DRIFT)
+                                   - 2 * frame)
             if rock is not None:
                 # Only the part of the path before the rock can hit anything.
                 s.x, s.y = rock[0], rock[1]
@@ -1183,15 +1340,28 @@ class Stage:
         self.damage_enemy(e, s.damage, x, y, flash=1.0 if sniper else 0.55, source=s.kind)
 
     def _enemy_shot_hits(self, s: Shot, x0: float, y0: float) -> bool:
+        span = abs(s.x - x0) + abs(s.y - y0) + s.pad
         for t in self.structures:
-            if t.alive and self._segment_near(x0, y0, s.x, s.y, t.x, t.y, t.radius + s.pad):
+            if not t.alive:
+                continue
+            far = t.radius + t.hoop + span
+            if abs(t.x - s.x) > far or abs(t.y - s.y) > far:
+                continue
+            if t.hoop > 0:
+                if not self._crosses_band(x0, y0, s.x, s.y, t, s.pad):
+                    continue
+                px, py = s.x, s.y
+                back = math.atan2(-s.vy, -s.vx)
+            elif self._segment_near(x0, y0, s.x, s.y, t.x, t.y, t.radius + s.pad):
                 back = math.atan2(-s.vy, -s.vx)
                 ux, uy, d = s.x - t.x, s.y - t.y, max(1e-6, math.hypot(s.x - t.x, s.y - t.y))
                 px, py = t.x + ux / d * t.radius, t.y + uy / d * t.radius
-                self.anims.append(Anim("flare", ("danger",), 2, 20, px, py))
-                self.sparks.burst("danger_spark", px, py, back, 0.9, 3, (20, 70), (0.1, 0.3))
-                self.damage_structure(t, s.damage, px, py, source=s.kind)
-                return False
+            else:
+                continue
+            self.anims.append(Anim("flare", ("danger",), 2, 20, px, py))
+            self.sparks.burst("danger_spark", px, py, back, 0.9, 3, (20, 70), (0.1, 0.3))
+            self.damage_structure(t, s.damage, px, py, source=s.kind)
+            return False
         ship = self.ship
         if not self.ship_visible:
             return True
@@ -1205,6 +1375,18 @@ class Stage:
                 self.damage_player(s.damage, px, py, push=s.damage * 1.5)
                 return False
         return True
+
+    @staticmethod
+    def _crosses_band(x0, y0, x1, y1, t: Structure, pad: float) -> bool:
+        """Whether a shot's path from (x0, y0) to (x1, y1) touches the collector ring's band."""
+        lo, hi = t.radius - t.hoop - pad, t.radius + t.hoop + pad
+        d1 = math.hypot(x1 - t.x, y1 - t.y)
+        if lo <= d1 <= hi:
+            return True
+        d0 = math.hypot(x0 - t.x, y0 - t.y)
+        if (d0 - hi) * (d1 - hi) < 0 or (d0 - lo) * (d1 - lo) < 0:
+            return True         # it stepped right across the band
+        return False
 
     @staticmethod
     def _segment_near(x0, y0, x1, y1, cx, cy, r) -> bool:
@@ -1260,6 +1442,8 @@ class Stage:
 
     def _missile_goal(self, m: Missile):
         if m.owner == "enemy":
+            if isinstance(m.target, Structure):
+                return (m.target.x, m.target.y) if m.target.alive else None
             return (self.ship.x, self.ship.y) if self.ship_visible else None
         t = m.target
         if not isinstance(t, Enemy) or not t.targetable:
@@ -1271,10 +1455,21 @@ class Stage:
 
     def _missile_contact(self, m: Missile, x0: float, y0: float) -> bool:
         if m.owner == "enemy":
-            for px, py in self._march(x0, y0, m.x, m.y, 1.5):
-                if self.player_blocks(px, py, 1.5):
-                    m.x, m.y = px, py
-                    return True
+            if self.ship_visible:
+                for px, py in self._march(x0, y0, m.x, m.y, 1.5):
+                    if self.player_blocks(px, py, 1.5):
+                        m.x, m.y = px, py
+                        return True
+            for t in self.structures:
+                if not t.alive or t.kind == "base":
+                    continue
+                if t.hoop > 0:
+                    if not self._crosses_band(x0, y0, m.x, m.y, t, 1.5):
+                        continue
+                elif not self._segment_near(x0, y0, m.x, m.y, t.x, t.y, t.radius + 1.5):
+                    continue
+                m.struck = t
+                return True
             return False
         for e in self.enemies:
             if not e.targetable:
@@ -1292,7 +1487,9 @@ class Stage:
         if m.owner == "enemy":
             self.anims.append(Anim("explosion", ("danger", 21, m.uid % 3), 6, 16, m.x, m.y))
             self.sparks.burst("danger_spark", m.x, m.y, 0.0, math.pi, 10, (30, 90), (0.15, 0.4))
-            if self.player_blocks(m.x, m.y, 4.0):
+            if isinstance(m.struck, Structure):
+                self.damage_structure(m.struck, m.damage, m.x, m.y, source="missile")
+            elif self.ship_visible and self.player_blocks(m.x, m.y, 4.0):
                 self.damage_player(m.damage, m.x, m.y, "missile", push=40.0)
             return
         R = m.blast_radius

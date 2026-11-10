@@ -1,7 +1,7 @@
 {
   "about": "How enemies fight and how the combat sandbox runs. Distances are game pixels, times are seconds, angles are degrees. Enemy speeds, health and weapons are in weapons.json. Nothing here is fixed in code.",
   "ai": {
-    "about": "infantry: squads hold `standoff` from you in a formation `spacing` apart and at least `squad_gap` from the next squad, re-plan every `replan` seconds, drift around you at `orbit` degrees a second (reversing with chance `orbit_flip` at each re-plan), and fire when you are within `fire_range` and no rock is in the way. `aim_lead` is how much of your movement they lead (0 aims where you are, 1 leads fully) and `spread` the scatter of their aim. guard: forms a wall `wall_gap` in front of the squad it guards, sharing the squad's width with the other guards (at least `spacing` each), so the infantry shoot over it. It only rams once that squad is down to `ram_when_left` ships, or with no squad to guard once you are within `alone_ram`; you must be within `ram_range` with no rock in the way. During the warning it keeps turning toward you at up to `track_turn` degrees a second, and the lane locks (flashing fast) for the last `lock_time` seconds before it charges. Then it waits `ram_cooldown`. rapid: waits `hold_range` behind you (up to `hold_spread` degrees either side) for `rest` seconds, dives past you `pass_offset` to one side, fires a burst inside `fire_range` (leading you by `aim_lead`, scattered by `spread`), and carries on `overshoot` past you, giving up after `pass_time` seconds. avoid: everyone looks `look` ahead for rocks and swings wide by `margin`. Every `stuck_check` seconds of trying to fly somewhere, a ship that covered less than `stuck_ratio` of the way is stuck: it looks `probe` out in `probe_ways` directions and flies straight along the most open one for up to `unstick_time` seconds, picking more loosely (up to `unstick_swing` degrees off) each time it gets stuck again in a row. Then it goes round: it flies to a point `detour` off to the side of the straight way to its goal (for up to `detour_time` seconds, further and on the other side if it gets stuck again) before heading for the goal again.",
+    "about": "infantry: squads hold `standoff` from you in a formation `spacing` apart and at least `squad_gap` from the next squad, re-plan every `replan` seconds, drift around you at `orbit` degrees a second (reversing with chance `orbit_flip` at each re-plan), and fire when you are within `fire_range` and no rock is in the way. `aim_lead` is how much of your movement they lead (0 aims where you are, 1 leads fully) and `spread` the scatter of their aim. guard: forms a wall `wall_gap` in front of the squad it guards, sharing the squad's width with the other guards (at least `spacing` each), so the infantry shoot over it. It only rams once that squad is down to `ram_when_left` ships, or with no squad to guard once you are within `alone_ram`; you must be within `ram_range` with no rock in the way. During the warning it keeps turning toward you at up to `track_turn` degrees a second, and the lane locks (flashing fast) for the last `lock_time` seconds before it charges. Then it waits `ram_cooldown`. rapid: waits `hold_range` behind you (up to `hold_spread` degrees either side) for `rest` seconds, dives past you `pass_offset` to one side, fires a burst inside `fire_range` (leading you by `aim_lead`, scattered by `spread`), and carries on `overshoot` past you, giving up after `pass_time` seconds. tank: flies to within `range` of you (or, while the enemy doesn't know where you are, of the drill, sentry or ring it raids), then holds there and fires `volley` homing missiles every `volley_every` seconds, two at a time `volley_gap` apart; its pods show empty for `reload_show` seconds. It re-plans every `replan` seconds. Its escort squad stays between it and its target, within `escort_leash` of the tank. Its health and slow self-repair are in weapons.json. avoid: everyone looks `look` ahead for rocks and swings wide by `margin`. Every `stuck_check` seconds of trying to fly somewhere, a ship that covered less than `stuck_ratio` of the way is stuck: it looks `probe` out in `probe_ways` directions and flies straight along the most open one for up to `unstick_time` seconds, picking more loosely (up to `unstick_swing` degrees off) each time it gets stuck again in a row. Then it goes round: it flies to a point `detour` off to the side of the straight way to its goal (for up to `detour_time` seconds, further and on the other side if it gets stuck again) before heading for the goal again.",
     "infantry": {"standoff": 140, "spacing": 22, "replan": 0.9, "orbit": 14, "orbit_flip": 0.08,
                  "fire_range": 240, "aim_lead": 0.6, "spread": 4.0, "squad_gap": 40},
     "guard": {"wall_gap": 46, "spacing": 24, "replan": 0.6, "ram_range": 230, "ram_cooldown": 4.0,
@@ -9,6 +9,8 @@
               "track_turn": 220, "lock_time": 0.15},
     "rapid": {"hold_range": 300, "hold_spread": 60, "replan": 0.5, "rest": [1.0, 2.4], "pass_offset": 26,
               "fire_range": 180, "aim_lead": 0.5, "spread": 3.0, "overshoot": 170, "pass_time": 3.0},
+    "tank": {"range": 600, "volley": 4, "volley_every": 6.0, "volley_gap": 0.35, "reload_show": 1.5,
+             "replan": 1.0, "escort_leash": 220},
     "avoid": {"look": 46, "margin": 6, "stuck_check": 1.0, "stuck_ratio": 0.3, "unstick_time": 0.8,
               "unstick_swing": 35, "probe": 90, "probe_ways": 16,
               "detour": 90, "detour_time": 2.5}
@@ -50,28 +52,35 @@
     "dock": 150
   },
   "fleet": {
-    "about": "Secure the Base waves. The mothership launches the first wave `first` seconds in, and each next one `gap` seconds after only `few_left` or fewer enemies are still out (ships flying home don't count), and no more than `few_left_share` of the last wave, so a small wave has to be mostly beaten first. Each wave leaves from the mothership's hangar, so it takes a while to reach you; an alert says it is on its way, with no countdown. The list repeats with `grow` more ships in every group each time round. formation is line, wedge or arc.",
-    "first": 30,
-    "few_left": 3,
-    "few_left_share": 0.5,
-    "gap": 5,
-    "grow": 1,
-    "list": [
-      {"name": "SCOUTS", "groups": [{"kind": "infantry", "count": 3, "formation": "line"}]},
-      {"name": "PATROL", "groups": [{"kind": "infantry", "count": 4, "formation": "wedge"}]},
-      {"name": "SHIELD WALL", "groups": [{"kind": "infantry", "count": 4, "formation": "line"},
-                                         {"kind": "guard", "count": 2}]},
-      {"name": "RAIDERS", "groups": [{"kind": "rapid", "count": 3}, {"kind": "infantry", "count": 3, "formation": "arc"}]},
-      {"name": "TWO SQUADS", "groups": [{"kind": "infantry", "count": 4, "formation": "wedge"},
-                                        {"kind": "infantry", "count": 4, "formation": "arc"},
-                                        {"kind": "guard", "count": 1}]},
-      {"name": "THE SWARM", "groups": [{"kind": "infantry", "count": 5, "formation": "wedge"},
-                                       {"kind": "infantry", "count": 5, "formation": "line"},
-                                       {"kind": "guard", "count": 2}, {"kind": "rapid", "count": 3}]}
+    "about": "Secure the Base waves. The mothership launches the first wave `first` seconds in. After wave n the next one leaves `gap_start` - `gap_step` x (n - 1) seconds later, never less than `gap_min`, whether or not you have beaten the last one; the WAVE GAP slider multiplies these. A wave waits while `cap` or more enemies are still out. Each wave leaves from the mothership's hangar, so it takes a while to reach you; an alert says it is on its way and the HUD counts down to the next launch. SIZE: each wave has a threat budget, `budget.base` + `per_wave` x n + `per_wave_sq` x n squared up to wave `late_from`, and `late_base` + `late_step` x (n - `late_from`) after it; the WAVE SIZE slider multiplies it. Each ship costs its `threat` points. A kind of ship only appears from its `unlock` wave on (before that its share goes to infantry). A wave's recipe shares the budget out between the kinds by `mix` (parts of the whole), and gives its infantry squads their `formations` in turn (line, wedge or arc). Recipes without `from` take turns in the order listed; one with `from` and `every` takes over on those waves. Tanks are bought first: one for every `tank_every` points of budget, plus a recipe's own `tanks`. A tank never comes alone: each brings `escort.guard` guards and an infantry squad of `escort.infantry`, which stay within `ai.tank.escort_leash` of it. Infantry fly in squads of `squad` (fewest, most), rapid ships in groups of up to `rapid_group`, and guards are shared out between the squads. MASSIVE WAVES: wave `massive.first` and every `massive.every`th after it has exactly the `ships` listed, released in `groups` parts `group_gap` seconds apart from different sides of the hangar, and the next wave waits `cooloff` seconds after it. The HUD warns from `warn` waves before.",
+    "first": 60,
+    "gap_start": 120,
+    "gap_step": 4,
+    "gap_min": 45,
+    "cooloff": 150,
+    "cap": 150,
+    "budget": {"base": 3, "per_wave": 0.9, "per_wave_sq": 0.09, "late_from": 30, "late_base": 110, "late_step": 3},
+    "threat": {"infantry": 1, "rapid": 1.5, "guard": 4, "tank": 30},
+    "unlock": {"guard": 3, "rapid": 4, "tank": 12},
+    "tank_every": 80,
+    "escort": {"guard": 2, "infantry": 4},
+    "squad": [4, 6],
+    "rapid_group": 4,
+    "massive": {"first": 30, "every": 10, "warn": 3, "name": "MASSIVE WAVE", "groups": 5, "group_gap": 15,
+                "ships": {"infantry": 150, "rapid": 36, "guard": 12, "tank": 2}},
+    "recipes": [
+      {"name": "SCOUTS",      "mix": {"infantry": 70, "rapid": 20, "guard": 10}, "formations": ["line"]},
+      {"name": "PATROL",      "mix": {"infantry": 60, "rapid": 10, "guard": 30}, "formations": ["wedge"]},
+      {"name": "SHIELD WALL", "mix": {"infantry": 45, "rapid": 5,  "guard": 50}, "formations": ["line", "arc"]},
+      {"name": "RAIDERS",     "mix": {"infantry": 40, "rapid": 50, "guard": 10}, "formations": ["arc", "line"]},
+      {"name": "TWO SQUADS",  "mix": {"infantry": 65, "rapid": 10, "guard": 25}, "formations": ["wedge", "arc"]},
+      {"name": "THE SWARM",   "mix": {"infantry": 55, "rapid": 20, "guard": 25}, "formations": ["wedge", "line", "arc"]},
+      {"name": "SIEGE",       "mix": {"infantry": 50, "rapid": 15, "guard": 35}, "formations": ["line", "wedge"],
+       "tanks": 1, "from": 12, "every": 6}
     ]
   },
   "drills": {
-    "about": "Secure the Base. Press F near an asteroid (within `reach` of its edge) to set one of the drills you carry on the side facing you. Only asteroids at least `min_size` across take one, and with `ore_only` only those with ore (the glinting ones). Several drills can share an asteroid, at least `spacing` pixels apart round its edge. An asteroid holds `ore_per_area` ore per square pixel of its picture, so big ones last longer (a 24 px rock about 58, a 48 px one about 230, a 96 px one about 920), and every drill on it digs from that same ore. A drill digs `dig_rate` ore a second into its hold, up to `hold`, and stops while the hold is full. Fly within `pickup` of a drill to load its ore (your ship carries `cargo`), and within `unload` of home base to sell it for `credit_per_ore` credits each. As an asteroid empties it cracks: stage 1, 2 and 3 cracks show once `crack_at` of its ore is gone. Once it is empty and its drills have been unloaded it crumbles away (`crumble_frames` frames at `crumble_fps`) and takes its drills with it. Enemies can destroy a drill: it has `health`, and enemy shots hit anything within `radius` of it. Home base is `base_radius` across for hits and can't be destroyed yet.",
+    "about": "Secure the Base. Press F near an asteroid (within `reach` of its edge) to set one of the drills you carry on the side facing you. Only asteroids at least `min_size` across take one, and with `ore_only` only those with ore (the glinting ones). Several drills can share an asteroid, at least `spacing` pixels apart round its edge. An asteroid holds `ore_per_area` ore per square pixel of its picture, so big ones last longer (a 24 px rock about 58, a 48 px one about 230, a 96 px one about 920), and every drill on it digs from that same ore. A drill digs `dig_rate` ore a second into its hold, up to `hold`, and stops while the hold is full. Fly within `pickup` of a drill to load its ore (your ship carries `cargo`), and within `unload` of home base to sell it for `credit_per_ore` credits each. As an asteroid empties it cracks: stage 1, 2 and 3 cracks show once `crack_at` of its ore is gone. Once it is empty and its drills have been unloaded it crumbles away (`crumble_frames` frames at `crumble_fps`). Its drills aren't used up: each pops off at `float_speed` and drifts, slowing down (`float_damper`, higher stops sooner), until you fly within `float_pickup` of it: then it flies in to your ship at `float_pull` (on top of your own speed, and straight through any asteroid it was stuck under) and goes back in your hold once it is within `float_grab`. Enemies can destroy a drill: it has `health`, and enemy shots hit anything within `radius` of it. Home base is `base_radius` across for hits and can't be destroyed yet.",
     "health": 900,
     "radius": 8,
     "reach": 40,
@@ -88,6 +97,11 @@
     "crack_at": [0.25, 0.55, 0.85],
     "crumble_frames": 9,
     "crumble_fps": 8,
+    "float_speed": 22,
+    "float_damper": 0.5,
+    "float_pickup": 90,
+    "float_pull": 260,
+    "float_grab": 14,
     "base_radius": 30
   },
   "mines": {
@@ -112,6 +126,27 @@
     "auto": {"health": [160, 280, 420], "range": 230, "turn_rate": 260, "aim_cone": 8, "fire_rate": 5, "damage": 4, "spread": 3, "speed": 460},
     "sniper": {"health": [200, 340, 520], "range": 400, "turn_rate": 140, "aim_cone": 2, "fire_rate": 0.6, "damage": 34, "pierce": 3, "speed": 1100},
     "missile": {"health": [240, 400, 600], "range": 440, "turn_rate": 180, "aim_cone": 25, "salvo": 4, "gap": 0.35, "reload": 4.5, "damage": 30}
+  },
+  "haul": {
+    "about": "The lasso and the collector ring (sprint 10). Lasso: press Q to grab the nearest asteroid whose edge is within `grab_reach` of your ship, if your lasso level can tow one that big (shop.json); press Q again to let go. The beam leaves your ship `tail` pixels behind its centre and holds the rock's edge `beam` pixels from there, never nearer or further, so the rock can't hit you (after a grab it eases in to that length over about `latch_time` seconds). The rock pulls on your ship by its weight times the TOW WEIGHT slider. A rock you tow or let go of hurts an enemy it hits while it moves faster than `throw_min_speed` (relative to the enemy): `throw_damage` x its weight x the speed above that minimum x the THROW POWER slider, never more than `mothership_cap` to the mothership. Each hit takes `hit_slow` of the rock's speed and shoves the enemy; the same rock can't hit the same enemy again for `hit_cooldown` seconds. Thrown rocks never hurt your own things. Ring: holds up to 4 asteroids (`slots`). Hold T to see where it would go (centred on your ship) and let go of T to place it there: it needs the band and its mounts clear of asteroids and other structures, and to be at least `clear_of_base` from home base's centre. A loose asteroid that drifts inside its field (or that you let go of there) is caught and eased into a free spot at `ease` (higher is quicker) up to `ease_speed`. When a drill on a held asteroid fills its hold (or its asteroid runs dry), its ore sells straight away for drills' `credit_per_ore`, and a gold spark flies to the nearest collector node in `pulse_time` seconds (the node stays lit for `node_lit`). Enemies remember a ring they come across and raid it; their shots hit its band. With `keep_out` true they can't fly into it: their hulls are held `keep_out_pad` pixels outside its band and slide round it, and you can't place it where an enemy is in the way. It has `health`; repair it at the station. Press R inside it to mount the next sentry you carry on the next free mount (top, right, bottom, left): mounted sentries have no health of their own, hits on them hurt the ring, and they're destroyed with it. Asteroids and drills inside a broken ring stay where they are. How big the ring is comes from its art (art/haul.py).",
+    "grab_reach": 70,
+    "tail": 12,
+    "beam": 34,
+    "latch_time": 0.25,
+    "throw_min_speed": 90,
+    "throw_damage": 0.2,
+    "mothership_cap": 60,
+    "hit_slow": 0.45,
+    "hit_cooldown": 0.5,
+    "slots": 4,
+    "health": 3000,
+    "clear_of_base": 240,
+    "ease": 2.5,
+    "ease_speed": 90,
+    "pulse_time": 0.6,
+    "node_lit": 0.9,
+    "keep_out": true,
+    "keep_out_pad": 2
   },
   "sandbox": {
     "about": "`respawn` seconds after your ship goes down you are back, blinking (unhittable) for `invulnerable` seconds. Edge arrows point at up to `arrows` enemies within `arrow_range` that are off screen.",
